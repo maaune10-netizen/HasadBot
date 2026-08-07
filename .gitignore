@@ -109,3 +109,6 @@ login_attempts.log
 stats_*.json
 
 /_test_data
+
+# Local test sandboxes
+/_test_data*/
