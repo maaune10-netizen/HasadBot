@@ -108,3 +108,4 @@ login_attempts.log
 /l
 stats_*.json
 
+/_test_data
