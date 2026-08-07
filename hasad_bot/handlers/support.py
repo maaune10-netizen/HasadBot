@@ -359,15 +359,24 @@ async def admin_send_reply_done(update: Update, context: ContextTypes.DEFAULT_TY
                 caption=f"🛡️ <b>رد من الدعم:</b>\n\n{reply_text}",
                 parse_mode=ParseMode.HTML
             )
+            await db_log(int(target_uid), "SUPPORT_REPLY", detail=reply_text, source="ADMIN")
         else:
-            await context.bot.send_message(
+            # النص فقط: تفويض الإرسال + التسجيل + التدقيق للخدمة المشتركة (admin_ops)
+            from hasad_bot.admin_ops import send_support_reply
+            ok, msg = await send_support_reply(
+                context.bot,
                 int(target_uid),
-                f"🛡️ <b>رد من الدعم:</b>\n\n{reply_text}",
-                parse_mode=ParseMode.HTML
+                reply_text,
+                actor="telegram",
+                admin_id=update.effective_user.id,
+                admin_name=update.effective_user.full_name or "telegram",
             )
+            if not ok:
+                await update.message.reply_text(f"❌ تعذر الإرسال: {msg}", parse_mode=ParseMode.HTML)
+                context.user_data["reply_to_uid"] = None
+                return MAIN_MENU
 
         await update.message.reply_text(f"✅ تم إرسال الرد إلى <code>{target_uid}</code>", parse_mode=ParseMode.HTML)
-        await db_log(int(target_uid), "SUPPORT_REPLY", detail=reply_text, source="ADMIN")
 
     except Exception as e:
         await update.message.reply_text(f"❌ تعذر الإرسال: {e}")

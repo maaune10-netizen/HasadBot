@@ -870,6 +870,15 @@ DASHBOARD_PAGE = """
                     <button class="tab-btn" data-tab="messaging" onclick="showTab('messaging',this)">
                         <span>📢</span><span class="hide-mobile">البث والإعلانات</span>
                     </button>
+                    <button class="tab-btn" data-tab="support" onclick="showTab('support',this)">
+                        <span>🛟</span><span class="hide-mobile">الدعم</span>
+                    </button>
+                    <button class="tab-btn" data-tab="logs" onclick="showTab('logs',this)">
+                        <span>📜</span><span class="hide-mobile">السجلات</span>
+                    </button>
+                    <button class="tab-btn" data-tab="backups" onclick="showTab('backups',this)">
+                        <span>💾</span><span class="hide-mobile">النسخ الاحتياطية</span>
+                    </button>
                 </div>
 
                 <div class="tab-content">
@@ -1070,6 +1079,120 @@ DASHBOARD_PAGE = """
                             </table>
                         </div>
                         <div id="announcements-progress" style="display:none"></div>
+                    </div>
+
+                    <!-- Support Tab -->
+                    <div class="tab-pane" id="tab-support">
+                        <div class="section-header">🛟 الدعم</div>
+                        <div id="support-msg" class="action-msg" style="display:none"></div>
+                        <div class="filter-bar">
+                            <input type="text" class="filter-input" placeholder="🔍 بحث بالاسم أو المعرف..." id="supportSearch" oninput="filterSupportConversations()">
+                            <select class="filter-select" id="supportStatus" onchange="loadSupportConversations()">
+                                <option value="all">الكل</option>
+                                <option value="open">مفتوحة</option>
+                                <option value="closed">مغلقة</option>
+                            </select>
+                        </div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>الاسم</th>
+                                        <th>المعرف</th>
+                                        <th class="hide-mobile">آخر نشاط</th>
+                                        <th class="hide-mobile">اتجاه آخر</th>
+                                        <th class="hide-mobile">عدد الرسائل</th>
+                                        <th>الحالة</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="support-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Logs Tab -->
+                    <div class="tab-pane" id="tab-logs">
+                        <div class="section-header">📜 السجلات</div>
+                        <div id="logs-msg" class="action-msg" style="display:none"></div>
+                        <div class="filter-bar">
+                            <select class="filter-select" id="logsFileSelect" onchange="switchLogFile()">
+                                <option value="">— اختر ملف السجل —</option>
+                            </select>
+                            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em;color:var(--text-secondary)">
+                                <input type="checkbox" id="logsAutoRefresh" style="accent-color:var(--primary);width:16px;height:16px;cursor:pointer" onchange="logsAutoRefresh()">
+                                تحديث تلقائي (5 ثوانٍ)
+                            </label>
+                            <select class="filter-select" id="logsLimitSelect" onchange="loadLogFile()">
+                                <option value="100">100 سطر</option>
+                                <option value="500">500 سطر</option>
+                            </select>
+                        </div>
+                        <pre id="logs-body" style="background:#0f172a;color:#e2e8f0;padding:14px;border-radius:8px;max-height:460px;overflow:auto;font-family:Consolas,Menlo,monospace;font-size:0.78em;line-height:1.6;direction:ltr;text-align:left;white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+
+                        <div class="section-header" style="margin-top:24px">سجل مستخدم</div>
+                        <div class="filter-bar">
+                            <input type="text" class="filter-input" placeholder="🆔 معرف المستخدم..." id="userLogUid">
+                            <button class="action-btn action-btn-primary" onclick="loadUserLog()">عرض</button>
+                        </div>
+                        <div id="userlog-table-wrap" class="table-container" style="display:none">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>الوقت</th>
+                                        <th>الخطوة</th>
+                                        <th>التفاصيل</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="userlog-body"></tbody>
+                            </table>
+                        </div>
+
+                        <div class="section-header" style="margin-top:24px">سجل التدقيق</div>
+                        <div class="filter-bar">
+                            <input type="text" class="filter-input" placeholder="🔍 البحث في الإجراء (action)..." id="auditActionInput">
+                            <select class="filter-select" id="auditLimitSelect">
+                                <option value="50">50 سطر</option>
+                                <option value="100" selected>100 سطر</option>
+                                <option value="500">500 سطر</option>
+                            </select>
+                            <button class="action-btn action-btn-primary" onclick="loadAuditLog()">عرض</button>
+                        </div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>المشرف</th>
+                                        <th>الإجراء</th>
+                                        <th class="hide-mobile">التفاصيل</th>
+                                        <th>الوقت</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="audit-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Backups Tab -->
+                    <div class="tab-pane" id="tab-backups">
+                        <div class="section-header">💾 النسخ الاحتياطية</div>
+                        <div id="backups-msg" class="action-msg" style="display:none"></div>
+                        <div class="api-grid">
+                            <div class="api-card">
+                                <div class="api-icon">📦</div>
+                                <div class="api-label">نسخة قاعدة البيانات</div>
+                                <button class="action-btn action-btn-primary backup-btn" style="margin-top:8px" onclick="confirmBackup('db')">إنشاء نسخة</button>
+                            </div>
+                            <div class="api-card">
+                                <div class="api-icon">📊</div>
+                                <div class="api-label">تصدير بيانات الطلاب</div>
+                                <button class="action-btn action-btn-primary backup-btn" style="margin-top:8px" onclick="confirmBackup('cv')">إنشاء نسخة</button>
+                            </div>
+                            <div class="api-card">
+                                <div class="api-icon">📜</div>
+                                <div class="api-label">تصدير سجلات الإدارة</div>
+                                <button class="action-btn action-btn-primary backup-btn" style="margin-top:8px" onclick="confirmBackup('admin_logs')">إنشاء نسخة</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1405,6 +1528,13 @@ DASHBOARD_PAGE = """
         document.getElementById('tab-'+name)?.classList.add('active');
         if (name === 'payments') loadPaymentRequests();
         if (name === 'messaging') loadMessaging();
+        if (name === 'support') loadSupportConversations();
+        if (name === 'logs') {
+            loadLogFiles(); loadLogFile();
+            const chk = document.getElementById('logsAutoRefresh');
+            if (chk && chk.checked) startLogsPoll();
+        }
+        if (name !== 'logs') stopLogsPoll();
     }
 
     /* ===== Modal ===== */
@@ -2440,6 +2570,365 @@ DASHBOARD_PAGE = """
         }
     }
 
+    /* ===== Support Tab ===== */
+    let supportConversations = [];
+
+    function setSupportMsg(text, isError) {
+        const el = document.getElementById('support-msg');
+        if (!el) return;
+        if (!text) { el.style.display = 'none'; return; }
+        el.style.display = 'block';
+        el.textContent = text;
+        el.className = 'action-msg ' + (isError ? 'action-msg-error' : 'action-msg-success');
+    }
+
+    function fmtEpoch(ts) {
+        if (ts === null || ts === undefined || ts === '') return '—';
+        const n = Number(ts);
+        if (Number.isFinite(n) && n > 1e8) {
+            try {
+                return new Date(n * 1000).toLocaleString('ar-EG', { timeZone: 'Asia/Riyadh', dateStyle: 'short', timeStyle: 'short' });
+            } catch (e) { /* fallthrough */ }
+        }
+        return String(ts);
+    }
+
+    async function loadSupportConversations() {
+        const status = document.getElementById('supportStatus').value;
+        setSupportMsg('⏳ جاري تحميل المحادثات...', false);
+        try {
+            const res = await fetch('/api/admin/support?status=' + encodeURIComponent(status));
+            const data = await res.json();
+            if (!res.ok || data.success === false || data.error) {
+                setSupportMsg('⚠️ ' + esc(data.message || data.error || 'حدث خطأ'), true);
+                supportConversations = [];
+                renderSupportTable();
+                return;
+            }
+            supportConversations = data.conversations || [];
+            setSupportMsg('', false);
+            renderSupportTable();
+        } catch (err) {
+            setSupportMsg('⚠️ فشل الاتصال بالخادم', true);
+            supportConversations = [];
+            renderSupportTable();
+        }
+    }
+
+    function filterSupportConversations() {
+        renderSupportTable();
+    }
+
+    function renderSupportTable() {
+        const q = (document.getElementById('supportSearch').value || '').trim().toLowerCase();
+        const rows = supportConversations.filter(c => {
+            if (!q) return true;
+            return String(c.name || '').toLowerCase().includes(q) || String(c.user_id || '').toLowerCase().includes(q);
+        });
+        const tbody = document.getElementById('support-body');
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="6"><div class="empty-state"><div class="icon">📭</div><div class="text">لا توجد محادثات</div></div></td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.map(c => {
+            const open = c.status === 'open';
+            const dir = c.last_direction === 'admin' ? '🛡️ إدارة' : '👤 مستخدم';
+            const msgs = (c.msg_count || 0) + (c.reply_count || 0);
+            return `
+            <tr class="user-row" onclick="showSupportConversation(${esc(String(c.user_id))})">
+                <td style="font-weight:600">${esc(c.name || '—')}</td>
+                <td><code>${esc(String(c.user_id))}</code></td>
+                <td class="hide-mobile">${esc(fmtEpoch(c.last_activity_ts))}</td>
+                <td class="hide-mobile">${dir}</td>
+                <td class="hide-mobile">${esc(String(msgs))}</td>
+                <td><span class="badge ${open ? 'badge-warning' : 'badge-success'}">${open ? 'مفتوحة' : 'مغلقة'}</span></td>
+            </tr>`;
+        }).join('');
+    }
+
+    let currentSupportUserId = null;
+
+    async function showSupportConversation(userId) {
+        currentSupportUserId = userId;
+        openModal('🛟 محادثة الدعم', '<div class="empty-state"><div class="icon">⏳</div><div class="text">جاري التحميل...</div></div>');
+        try {
+            const res = await fetch('/api/admin/support/' + encodeURIComponent(userId));
+            const data = await res.json();
+            if (!res.ok || data.success === false || data.error) {
+                openModal('🛟 محادثة الدعم', '<div class="action-msg action-msg-error" style="display:block">⚠️ ' + esc(data.message || data.error || 'حدث خطأ') + '</div>');
+                return;
+            }
+            renderSupportModal(data.user || {}, data.history || []);
+        } catch (err) {
+            openModal('🛟 محادثة الدعم', '<div class="empty-state"><div class="icon">⚠️</div><div class="text">فشل جلب البيانات</div></div>');
+        }
+    }
+
+    function renderSupportModal(user, history) {
+        const infoHtml = `
+            <div class="info-grid">
+                <div class="info-item"><div class="label">المعرف</div><div class="value"><code>${esc(String(user.id != null ? user.id : '—'))}</code></div></div>
+                <div class="info-item"><div class="label">الاسم</div><div class="value">${esc(user.name || '—')}</div></div>
+                <div class="info-item"><div class="label">يوزر المنصة</div><div class="value"><code>${esc(user.platform_user || '—')}</code></div></div>
+                <div class="info-item"><div class="label">الاشتراك</div><div class="value"><span class="badge ${user.is_subscribed ? 'badge-success' : 'badge-danger'}">${user.is_subscribed ? '✅ مشترك' : '❌ غير مشترك'}</span></div></div>
+                <div class="info-item"><div class="label">تاريخ الانتهاء</div><div class="value">${esc(user.expiry_hijri || '—')}</div></div>
+                <div class="info-item"><div class="label">الواجبات المحلولة</div><div class="value">${esc(String(user.total_hw_solved || 0))}</div></div>
+                <div class="info-item"><div class="label">آخر نشاط</div><div class="value">${esc(user.last_active || '—')}</div></div>
+                <div class="info-item"><div class="label">الدور</div><div class="value">${user.is_admin ? '🛡️ أدمن' : (user.is_reseller ? '💠 موزع' : '👤 مستخدم')}</div></div>
+            </div>`;
+        const historyHtml = history.length
+            ? `<div class="activity-feed" id="support-history">` + history.map(h => {
+                const fromUser = h.direction === 'user';
+                return `<div class="activity-item">
+                    <div class="activity-time">${esc(fmtEpoch(h.ts))}</div>
+                    <div class="activity-icon icon-${fromUser ? 'user' : 'admin'}">${fromUser ? '👤' : '🛡️'}</div>
+                    <div>${esc(h.detail || '')}</div>
+                </div>`;
+            }).join('') + `</div>`
+            : '<div class="empty-state"><div class="icon">📭</div><div class="text">لا توجد رسائل في هذه المحادثة</div></div>';
+        const replyHtml = `
+            <div class="action-panel">
+                <div class="action-panel-title">✍️ إرسال رد</div>
+                <textarea id="support-reply-text" class="day-custom" style="width:100%;min-height:100px;box-sizing:border-box" placeholder="اكتب الرد هنا..."></textarea>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-primary" id="support-reply-btn" onclick="sendSupportReply()">إرسال الرد</button>
+                </div>
+            </div>`;
+        openModal(`🛟 محادثة الدعم — ${esc(user.name || user.id || '')}`, infoHtml + historyHtml + replyHtml);
+    }
+
+    async function sendSupportReply() {
+        const btn = document.getElementById('support-reply-btn');
+        const textEl = document.getElementById('support-reply-text');
+        const text = (textEl.value || '').trim();
+        if (!text) { showToast('⚠️ اكتب نص الرد أولاً', 'error'); return; }
+        btn.disabled = true;
+        btn.textContent = '⏳ جاري الإرسال...';
+        try {
+            const res = await fetch('/api/admin/support/' + encodeURIComponent(currentSupportUserId) + '/reply', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            });
+            const data = await res.json();
+            if (!res.ok || data.success === false) {
+                btn.disabled = false;
+                btn.textContent = 'إرسال الرد';
+                showToast('⚠️ ' + esc(data.message || 'حدث خطأ'), 'error');
+                return;
+            }
+            showToast('✅ ' + esc(data.message || 'تم إرسال الرد'), 'success');
+            const d = await (await fetch('/api/admin/support/' + encodeURIComponent(currentSupportUserId))).json();
+            renderSupportModal(d.user || {}, d.history || []);
+            loadSupportConversations();
+        } catch (err) {
+            btn.disabled = false;
+            btn.textContent = 'إرسال الرد';
+            showToast('⚠️ فشل الاتصال بالخادم', 'error');
+        }
+    }
+
+    /* ===== Logs Tab ===== */
+    let logsPollTimer = null;
+
+    function setLogsMsg(text, isError) {
+        const el = document.getElementById('logs-msg');
+        if (!el) return;
+        if (!text) { el.style.display = 'none'; return; }
+        el.style.display = 'block';
+        el.textContent = text;
+        el.className = 'action-msg ' + (isError ? 'action-msg-error' : 'action-msg-success');
+    }
+
+    async function loadLogFiles() {
+        try {
+            const res = await fetch('/api/admin/logs');
+            const data = await res.json();
+            if (!res.ok || data.success === false || data.error) {
+                setLogsMsg('⚠️ ' + esc(data.message || data.error || 'حدث خطأ'), true);
+                return;
+            }
+            const sel = document.getElementById('logsFileSelect');
+            const current = sel.value;
+            sel.innerHTML = '<option value="">— اختر ملف السجل —</option>' +
+                (data.files || []).map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
+            if (current && (data.files || []).indexOf(current) !== -1) sel.value = current;
+        } catch (err) {
+            setLogsMsg('⚠️ فشل الاتصال بالخادم', true);
+        }
+    }
+
+    function switchLogFile() {
+        stopLogsPoll();
+        loadLogFile();
+        const chk = document.getElementById('logsAutoRefresh');
+        if (chk && chk.checked) startLogsPoll();
+    }
+
+    function logsAutoRefresh() {
+        const chk = document.getElementById('logsAutoRefresh');
+        if (chk && chk.checked) {
+            startLogsPoll();
+        } else {
+            stopLogsPoll();
+        }
+    }
+
+    function startLogsPoll() {
+        stopLogsPoll();
+        logsPollTimer = setInterval(() => { loadLogFile(true); }, 5000);
+    }
+
+    function stopLogsPoll() {
+        if (logsPollTimer) {
+            clearInterval(logsPollTimer);
+            logsPollTimer = null;
+        }
+    }
+
+    async function loadLogFile(silent) {
+        const sel = document.getElementById('logsFileSelect');
+        const name = sel.value;
+        const limit = document.getElementById('logsLimitSelect').value;
+        const box = document.getElementById('logs-body');
+        if (!name) { box.textContent = ''; return; }
+        if (!silent) setLogsMsg('⏳ جاري تحميل السجل...', false);
+        try {
+            const res = await fetch('/api/admin/logs/' + encodeURIComponent(name) + '?tail=true&limit=' + encodeURIComponent(limit));
+            const data = await res.json();
+            if (!res.ok || data.success === false || data.error) {
+                setLogsMsg('⚠️ ' + esc(data.message || data.error || 'حدث خطأ'), true);
+                return;
+            }
+            setLogsMsg('', false);
+            const lines = data.lines || [];
+            box.innerHTML = (lines.length ? lines.map(l => esc(l)).join('\n') : esc('(سجل فارغ)'));
+            box.scrollTop = box.scrollHeight;
+        } catch (err) {
+            if (!silent) setLogsMsg('⚠️ فشل الاتصال بالخادم', true);
+        }
+    }
+
+    async function loadUserLog() {
+        const uid = document.getElementById('userLogUid').value.trim();
+        if (!uid) { showToast('⚠️ أدخل معرف المستخدم', 'error'); return; }
+        setLogsMsg('⏳ جاري تحميل سجل المستخدم...', false);
+        try {
+            const res = await fetch('/api/admin/logs/user/' + encodeURIComponent(uid) + '?limit=100');
+            const data = await res.json();
+            if (!res.ok || data.success === false || data.error) {
+                setLogsMsg('⚠️ ' + esc(data.message || data.error || 'حدث خطأ'), true);
+                return;
+            }
+            setLogsMsg('', false);
+            const entries = data.entries || [];
+            const wrap = document.getElementById('userlog-table-wrap');
+            const tbody = document.getElementById('userlog-body');
+            wrap.style.display = 'block';
+            if (!entries.length) {
+                tbody.innerHTML = '<tr><td colspan="3"><div class="empty-state"><div class="icon">📭</div><div class="text">لا توجد أحداث لهذا المستخدم</div></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = entries.map(e => `
+                <tr>
+                    <td style="white-space:nowrap">${esc(e.ts || '—')}</td>
+                    <td><code>${esc(e.step || '—')}</code></td>
+                    <td style="max-width:420px;overflow:hidden;text-overflow:ellipsis" title="${esc(e.detail || '')}">${esc(e.detail || '—')}</td>
+                </tr>`).join('');
+        } catch (err) {
+            setLogsMsg('⚠️ فشل الاتصال بالخادم', true);
+        }
+    }
+
+    async function loadAuditLog() {
+        const action = document.getElementById('auditActionInput').value.trim();
+        const limit = document.getElementById('auditLimitSelect').value;
+        setLogsMsg('⏳ جاري تحميل سجل التدقيق...', false);
+        try {
+            let url = '/api/admin/logs/audit?limit=' + encodeURIComponent(limit);
+            if (action) url += '&action=' + encodeURIComponent(action);
+            const res = await fetch(url);
+            const data = await res.json();
+            if (!res.ok || data.success === false || data.error) {
+                setLogsMsg('⚠️ ' + esc(data.message || data.error || 'حدث خطأ'), true);
+                return;
+            }
+            setLogsMsg('', false);
+            const entries = data.entries || [];
+            const tbody = document.getElementById('audit-body');
+            if (!entries.length) {
+                tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">📭</div><div class="text">لا توجد إدخالات</div></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = entries.map(e => `
+                <tr>
+                    <td style="font-weight:600">${esc(e.admin_name || '—')}</td>
+                    <td><code>${esc(e.action_type || '—')}</code></td>
+                    <td class="hide-mobile" style="max-width:320px;overflow:hidden;text-overflow:ellipsis" title="${esc(e.details || '')}">${esc(e.details || '—')}</td>
+                    <td style="white-space:nowrap">${esc(fmtEpoch(e.created_at))}</td>
+                </tr>`).join('');
+        } catch (err) {
+            setLogsMsg('⚠️ فشل الاتصال بالخادم', true);
+        }
+    }
+
+    /* ===== Backups Tab ===== */
+    function setBackupsMsg(text, isError) {
+        const el = document.getElementById('backups-msg');
+        if (!el) return;
+        if (!text) { el.style.display = 'none'; return; }
+        el.style.display = 'block';
+        el.textContent = text;
+        el.className = 'action-msg ' + (isError ? 'action-msg-error' : 'action-msg-success');
+    }
+
+    function setBackupButtonsDisabled(disabled) {
+        document.querySelectorAll('#tab-backups .backup-btn').forEach(b => { b.disabled = disabled; });
+    }
+
+    function confirmBackup(kind) {
+        const labels = { db: '📦 نسخة قاعدة البيانات', cv: '📊 تصدير بيانات الطلاب', admin_logs: '📜 تصدير سجلات الإدارة' };
+        openModal('💾 تأكيد النسخة الاحتياطية', `
+            <div class="action-panel">
+                <div class="action-panel-title">${labels[kind] || esc(kind)}</div>
+                <div style="color:var(--text-secondary);font-size:0.9em">سيتم إنشاء نسخة وإرسالها إلى قناة النسخ الاحتياطي — متابعة؟</div>
+            </div>
+            <div class="action-panel-btns">
+                <button class="action-btn action-btn-primary" id="backup-confirm-btn" onclick="runBackup('${esc(kind)}')">متابعة</button>
+                <button class="action-btn action-btn-ghost" onclick="closeModal()">إلغاء</button>
+            </div>
+        `);
+    }
+
+    async function runBackup(kind) {
+        const btn = document.getElementById('backup-confirm-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ جاري...'; }
+        setBackupButtonsDisabled(true);
+        closeModal();
+        setBackupsMsg('⏳ جاري إنشاء النسخة الاحتياطية...', false);
+        try {
+            const res = await fetch('/api/admin/backup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kind: kind })
+            });
+            const data = await res.json();
+            const msg = data.message || (data.success === false ? 'فشل إنشاء النسخة' : 'تم إنشاء النسخة وإرسالها');
+            if (data.success === false) {
+                setBackupsMsg('⚠️ ' + esc(msg), true);
+                showToast('⚠️ ' + esc(msg), 'error');
+            } else {
+                setBackupsMsg('✅ ' + esc(msg), false);
+                showToast('✅ ' + esc(msg), 'success');
+            }
+        } catch (err) {
+            setBackupsMsg('⚠️ فشل الاتصال بالخادم', true);
+            showToast('⚠️ فشل الاتصال بالخادم', 'error');
+        } finally {
+            setBackupButtonsDisabled(false);
+        }
+    }
+
     /* ===== Clock ===== */
     function updateTime() {
         const now = new Date();
@@ -3298,6 +3787,162 @@ async def admin_send_announcement(atype: str):
         return {"success": True, "job_id": job_id}
     except Exception as e:
         logger.error(f"admin_send_announcement error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+# ==============================================================================
+# Routes — Admin API (الدعم + اللوجات + النسخ الاحتياطي)
+# ==============================================================================
+
+@app.get("/api/admin/support")
+async def admin_support_conversations(status: str = "all", q: Optional[str] = None):
+    """قائمة محادثات الدعم مع حالة وفلترة (بحث بالاسم أو المعرّف)"""
+    try:
+        if status not in ("all", "open", "closed"):
+            return JSONResponse({"success": False, "message": "حالة غير صالحة"}, status_code=400)
+        from hasad_bot.admin_ops import get_support_conversations
+        conversations = await get_support_conversations(status=status, limit=100, q=q or "")
+        return {"conversations": conversations}
+    except Exception:
+        logger.error("admin_support_conversations error", exc_info=True)
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/support/{user_id}")
+async def admin_support_history(user_id: int):
+    """سجل محادثة دعم لمستخدم — معلومات آمنة فقط (بدون كلمات المرور)"""
+    try:
+        user = await db_get_user(user_id)
+        safe_user = None
+        if user:
+            now_ts = time.time()
+            is_sub = user_id == config.admin_id
+            expiry_ts = user.get("expiry_ts")
+            if not is_sub and expiry_ts:
+                try:
+                    is_sub = now_ts < float(expiry_ts)
+                except (TypeError, ValueError):
+                    pass
+            last_active = user.get("last_active") or 0
+            safe_user = {
+                "id": user["telegram_id"],
+                "name": user.get("name") or "",
+                "username": user.get("tg_username") or "",
+                "platform_user": user.get("dars360_user") or None,
+                "is_subscribed": is_sub,
+                "expiry_hijri": user.get("expiry_hijri") or "",
+                "free_attempts": user.get("free_attempts") or 0,
+                "total_hw_solved": user.get("total_hw_solved") or 0,
+                "last_active": datetime.fromtimestamp(last_active).strftime('%Y-%m-%d %H:%M') if last_active else None,
+                "is_admin": bool(user.get("is_admin")),
+                "is_reseller": bool(user.get("is_admin")) or user.get("role") == "reseller",
+            }
+        from hasad_bot.admin_ops import get_support_history
+        history = await get_support_history(user_id, limit=50)
+        return {"user": safe_user, "history": history}
+    except Exception:
+        logger.error("admin_support_history error", exc_info=True)
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/support/{user_id}/reply")
+async def admin_support_reply(user_id: int, request: Request):
+    """إرسال رد دعم لمستخدم"""
+    try:
+        body = await _parse_admin_body(request)
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return JSONResponse({"success": False, "message": "نص الرد مطلوب"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import OperationBlocked, send_support_reply
+        success, message = await send_support_reply(bot, user_id, text, actor="dashboard")
+        return {"success": success, "message": message}
+    except OperationBlocked as e:
+        return JSONResponse({"success": False, "message": f"{e}"}, status_code=403)
+    except Exception:
+        logger.error("admin_support_reply error", exc_info=True)
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/logs")
+async def admin_log_files():
+    """قائمة ملفات اللوجات المتاحة (أسماء فقط — بدون مسارات)"""
+    try:
+        from hasad_bot.admin_ops import LOG_FILE_ALLOWLIST
+        return {"files": list(LOG_FILE_ALLOWLIST.keys())}
+    except Exception:
+        logger.error("admin_log_files error", exc_info=True)
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/logs/audit")
+async def admin_audit_log(q: Optional[str] = None, action: Optional[str] = None,
+                          limit: int = 100, after: Optional[float] = None, before: Optional[float] = None):
+    """سجل إجراءات المشرفين (مع فلاتر بحث وفترة زمنية)"""
+    try:
+        if limit <= 0 or limit > 500:
+            return JSONResponse({"success": False, "message": "الحد غير صالح"}, status_code=400)
+        from hasad_bot.admin_ops import get_admin_audit
+        entries = await get_admin_audit(q=q or "", action=action or "", limit=limit, after=after, before=before)
+        return {"entries": entries}
+    except Exception:
+        logger.error("admin_audit_log error", exc_info=True)
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/logs/user/{uid}")
+async def admin_user_log(uid: str, limit: int = 100, step: Optional[str] = None):
+    """سجل تفاعلات مستخدم من اللوجات الداخلية"""
+    try:
+        try:
+            uid_int = int(uid)
+        except (TypeError, ValueError):
+            return JSONResponse({"success": False, "message": "معرّف المستخدم غير صالح"}, status_code=400)
+        if limit <= 0 or limit > 1000:
+            return JSONResponse({"success": False, "message": "الحد غير صالح"}, status_code=400)
+        from hasad_bot.admin_ops import get_user_log
+        return await get_user_log(uid_int, limit=limit, step_filter=step)
+    except Exception:
+        logger.error("admin_user_log error", exc_info=True)
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/logs/{name}")
+async def admin_read_log(name: str, offset: int = 0, limit: int = 200, tail: bool = False):
+    """قراءة ملف لوج من القائمة المسموحة فقط"""
+    try:
+        if offset < 0:
+            return JSONResponse({"success": False, "message": "الإزاحة غير صالحة"}, status_code=400)
+        if limit <= 0 or limit > 1000:
+            return JSONResponse({"success": False, "message": "الحد غير صالح"}, status_code=400)
+        from hasad_bot.admin_ops import OperationBlocked, read_log_file
+        result = await read_log_file(name=name, offset=offset, limit=limit, tail=tail)
+        return result
+    except OperationBlocked as e:
+        return JSONResponse({"success": False, "message": f"{e}"}, status_code=403)
+    except Exception:
+        logger.error("admin_read_log error", exc_info=True)
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/backup")
+async def admin_run_backup(request: Request):
+    """تشغيل نسخة احتياطية (قاعدة بيانات / سيرة ذاتية / سجلات إدارة)"""
+    try:
+        body = await _parse_admin_body(request)
+        kind = body.get("kind")
+        if kind not in ("db", "cv", "admin_logs"):
+            return JSONResponse({"success": False, "message": "نوع النسخة الاحتياطية غير صالح"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import OperationBlocked, run_backup
+        success, message = await run_backup(bot, kind, actor="dashboard")
+        if not success and "تصدير آخر" in message:
+            return JSONResponse({"success": success, "message": message}, status_code=409)
+        return {"success": success, "message": message}
+    except OperationBlocked as e:
+        return JSONResponse({"success": False, "message": f"{e}"}, status_code=403)
+    except Exception:
+        logger.error("admin_run_backup error", exc_info=True)
         return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
 
 

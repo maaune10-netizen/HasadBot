@@ -208,6 +208,10 @@ PLAYWRIGHT_HEADLESS = os.environ.get("PLAYWRIGHT_HEADLESS", "false").lower() in 
 # تعطيل الرادار مؤقتاً (لتفادي الأخطاء المتكررة)
 RADAR_ENABLED = os.environ.get("RADAR_ENABLED", "false").lower() in ("1", "true", "yes")
 
+# بيئة التشغيل (production | test | ...) وسماح العمليات ذات الأثر الخارجي في الاختبار
+APP_ENV = os.environ.get("APP_ENV", "production").strip().lower() or "production"
+ALLOW_LIVE_TESTS = os.environ.get("ALLOW_LIVE_TESTS", "").strip().lower() in ("1", "true", "yes")
+
 # ==============================================================================
 # GROQ Keys
 # ==============================================================================
@@ -328,6 +332,10 @@ class Config:
         # Playwright / Radar
         self.playwright_headless = PLAYWRIGHT_HEADLESS
         self.radar_enabled = RADAR_ENABLED
+
+        # بيئة التشغيل وسماح الاختبارات الحية
+        self.app_env = APP_ENV
+        self.allow_live_tests = ALLOW_LIVE_TESTS
          
         # ✅ كلمة مرور النسخ الاحتياطي - MUST be set in .env
         self.backup_password = os.environ.get("BACKUP_PASSWORD", "")

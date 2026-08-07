@@ -7,6 +7,7 @@
 import asyncio
 import io
 import os
+import re
 import tempfile
 import time
 import zipfile
@@ -39,8 +40,25 @@ from hasad_bot.database import (
 )
 
 
+# ==============================================================================
+# حارس الأثر الخارجي (Side-effect guard)
+# ==============================================================================
+
+class OperationBlocked(Exception):
+    """رفض تنفيذ عملية ذات أثر خارجي (بيئة اختبار غير معزولة)"""
+    pass
+
+
+def assert_side_effect_safe() -> None:
+    # بيئة اختبار بدون data dir معزول = ممنوع أي عملية لها أثر خارجي
+    if config.app_env == "test" and not config.allow_live_tests:
+        if not os.environ.get("HASAD_DATA_DIR"):
+            raise OperationBlocked("APP_ENV=test بدون HASAD_DATA_DIR معزول — ممنوع تنفيذ عمليات ذات أثر خارجي")
+
+
 async def send_encrypted_excel_file(bot, chat_id, workbook, filename: str, caption: str):
     """تشفير Excel وإرساله (يفتح على الجوال)"""
+    assert_side_effect_safe()
     password = config.backup_password
     
     temp_input = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
@@ -73,6 +91,7 @@ async def send_encrypted_excel_file(bot, chat_id, workbook, filename: str, capti
 
 async def send_encrypted_zip_file(bot, chat_id, file_path, caption: str):
     """إرسال ZIP مشفر (لقاعدة البيانات واللوجات)"""
+    assert_side_effect_safe()
     from pathlib import Path
     
     password = config.backup_password
@@ -100,6 +119,7 @@ async def send_encrypted_zip_file(bot, chat_id, file_path, caption: str):
 
 async def send_db_backup(bot, chat_id=None):
     """Send database backup to channel"""
+    assert_side_effect_safe()
     db_path = config.knowledge_db
     channel_id = chat_id if chat_id is not None else config.backup_channel_id
     
@@ -114,6 +134,7 @@ async def send_db_backup(bot, chat_id=None):
         return
     
     zip_filename = f"Hasad_DB_Backup_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    ok = False
     
     try:
         with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -126,6 +147,7 @@ async def send_db_backup(bot, chat_id=None):
                 caption=f"📦 **قاعدة المعرفة**\n📅 {now_hijri()}",
                 parse_mode="Markdown"
             )
+        ok = True
         
         admin_trace("BACKUP_SUCCESS", "Database backup sent")
         logger.success("✅ Backup sent")
@@ -137,10 +159,12 @@ async def send_db_backup(bot, chat_id=None):
     finally:
         if os.path.exists(zip_filename):
             os.remove(zip_filename)
+    return ok
 
 
 async def send_cv_export(bot, chat_id=None):
     """Export CV data to Excel - مع تنسيقات كيو كيو"""
+    assert_side_effect_safe()
     print("✅ بدء تصدير بيانات CV...")
     
     channel_id = chat_id if chat_id is not None else config.backup_channel_id
@@ -152,6 +176,7 @@ async def send_cv_export(bot, chat_id=None):
     if not config.harvest_db.exists():
         print(f"❌ ملف قاعدة البيانات غير موجود: {config.harvest_db}")
         return
+    ok = False
     
     try:
         async with aiosqlite.connect(config.harvest_db) as db:
@@ -278,6 +303,7 @@ async def send_cv_export(bot, chat_id=None):
                 caption=caption,
                 parse_mode="HTML"
             )
+            ok = True
             
             print(f"✅ تم إرسال ملف الإكسل الملون للقناة! ({rows_added} سجل)")
             
@@ -286,10 +312,12 @@ async def send_cv_export(bot, chat_id=None):
         print(f"❌ خطأ في تصدير الملف: {e}")
         import traceback
         traceback.print_exc()
+    return ok
 
 
 async def extract_credentials(bot, chat_id=None):
     """استخراج بيانات المنصة - ملف Excel ملون ومدلع"""
+    assert_side_effect_safe()
     print("🔑 بدء استخراج بيانات المنصة...")
     
     channel_id = chat_id if chat_id is not None else config.backup_channel_id
@@ -297,6 +325,7 @@ async def extract_credentials(bot, chat_id=None):
     if not channel_id:
         print("❌ BACKUP_CHANNEL_ID غير معرف في ملف .env")
         return
+    ok = False
     
     try:
         users = await db_all_users()
@@ -423,6 +452,7 @@ async def extract_credentials(bot, chat_id=None):
             caption=caption,
             parse_mode="HTML"
         )
+        ok = True
         
         print(f"✅ تم إرسال ملف البيانات للقناة! ({len(filtered_users)} حساب)")
         
@@ -437,6 +467,7 @@ async def extract_credentials(bot, chat_id=None):
         print(f"❌ خطأ في الاستخراج: {e}")
         import traceback
         traceback.print_exc()
+    return ok
 
 
 # اسم قديم محتفظ به للتوافق مع الاستدعاءات القائمة (terminal/CLI)
@@ -447,6 +478,7 @@ async def send_encrypted_file(bot, chat_id: int, file_path: Path, caption: str, 
     """
     إرسال ملف مشفر ومحمي بكلمة مرور
     """
+    assert_side_effect_safe()
     import tempfile
     import os
     import pyzipper
@@ -510,6 +542,7 @@ async def _get_payment_request_by_id(request_id: int):
 
 async def renew_subscription(bot, uid: int, days: int, actor: str = "dashboard") -> Tuple[bool, str]:
     """تجديد اشتراك مستخدم (نفس منطق admin_renew_got_days)"""
+    assert_side_effect_safe()
     try:
         u = await db_get_user(uid)
         if not u:
@@ -559,6 +592,7 @@ async def renew_subscription(bot, uid: int, days: int, actor: str = "dashboard")
 
 async def revoke_subscription(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, str]:
     """إلغاء اشتراك مستخدم (نفس منطق admin_revoke_done)"""
+    assert_side_effect_safe()
     try:
         u = await db_get_user(uid)
         if not u:
@@ -591,6 +625,7 @@ async def revoke_subscription(bot, uid: int, actor: str = "dashboard") -> Tuple[
 
 async def add_homework_credit(bot, uid: int, count: int, kind: str) -> Tuple[bool, str]:
     """إضافة واجبات لمستخدم (kind: free للرصيد المجاني، sub لحد الاشتراك)"""
+    assert_side_effect_safe()
     try:
         user = await db_get_user(uid)
         if not user:
@@ -680,6 +715,7 @@ async def add_homework_credit(bot, uid: int, count: int, kind: str) -> Tuple[boo
 
 async def approve_payment_request(bot, request_id: int, days: int, actor: str = "dashboard") -> Tuple[bool, str]:
     """تفعيل اشتراك من طلب دفع (نفس منطق set_days_callback / handle_custom_days_input)"""
+    assert_side_effect_safe()
     try:
         req = await _get_payment_request_by_id(request_id)
         if not req:
@@ -761,6 +797,7 @@ async def approve_payment_request(bot, request_id: int, days: int, actor: str = 
 
 async def reject_payment_request(bot, request_id: int, reason: str, actor: str = "dashboard") -> Tuple[bool, str]:
     """رفض طلب دفع (نفس منطق reject_reason_callback / handle_custom_reject)"""
+    assert_side_effect_safe()
     try:
         req = await _get_payment_request_by_id(request_id)
         if not req:
@@ -811,6 +848,7 @@ async def reject_payment_request(bot, request_id: int, reason: str, actor: str =
 
 async def unlock_user(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, str]:
     """فك قفل مستخدم مع أرشفة بيانات المنصة إن وجدت (نفس منطق cb_unlock)"""
+    assert_side_effect_safe()
     try:
         u = await db_get_user(uid)
         if not u:
@@ -848,6 +886,7 @@ async def unlock_user(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, st
 
 async def delete_user(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, str]:
     """حذف مستخدم مع جميع سجلاته (نفس منطق cb_delete)"""
+    assert_side_effect_safe()
     try:
         u = await db_get_user(uid)
         if not u:
@@ -910,6 +949,7 @@ async def send_broadcast(bot, target: str, text: str, actor: str = "dashboard", 
     admin_id/admin_name: هوية الأدمن لسجل التدقيق (admin_name يقع افتراضياً على actor).
     Returns: {"sent": n, "failed": n, "skipped": n, "errors": [...]}
     """
+    assert_side_effect_safe()
     valid_targets = ("all", "subscribed", "not_subscribed", "linked", "not_linked")
     if target not in valid_targets:
         return {"sent": 0, "failed": 0, "skipped": 0, "errors": [f"فئة غير معروفة: {target}"]}
@@ -970,6 +1010,7 @@ def _update_job_progress(job_id: str, p: dict):
 async def start_broadcast(bot, target: str, text: str, actor: str = "dashboard",
                           admin_id: int = 0, admin_name: str = None) -> str:
     """إنشاء وظيفة إرسال جماعي وتشغيلها في الخلفية. يرجع job_id."""
+    assert_side_effect_safe()
     job_id = _new_job_id()
     total = await get_users_count_by_target(target)
     SEND_JOBS[job_id] = {
@@ -1014,6 +1055,7 @@ async def _run_broadcast_job(job_id: str, bot, target: str, text: str, actor: st
 
 async def start_announcement_send(bot, atype: str, actor: str = "dashboard") -> str:
     """إنشاء وظيفة إرسال إعلان وتشغيلها في الخلفية. يرجع job_id."""
+    assert_side_effect_safe()
     job_id = _new_job_id()
     SEND_JOBS[job_id] = {
         "job_id": job_id,
@@ -1063,3 +1105,299 @@ async def _run_announcement_job(job_id: str, bot, atype: str, actor: str):
     finally:
         job["status"] = "done"
         job["finished_at"] = time.time()
+
+
+# ==============================================================================
+# الدعم الفني (Support) — مصدر البيانات: جدول logs (نفس تدفق تيليجرام)
+# ==============================================================================
+
+async def get_support_conversations(status: str = "all", limit: int = 100, q: str = "") -> List[dict]:
+    """محادثات الدعم: المستخدمون الذين لديهم سجلات SUPPORT_MSG / SUPPORT_REPLY.
+
+    لكل مستخدم: user_id, name, last_activity_ts, last_direction (user|admin),
+    msg_count, reply_count؛ الحالة المستخلصة: open إذا كان آخر اتجاه user وإلا closed.
+    الترتيب: last_activity_ts تنازلياً، ثم limit. q يفلتر بالاسم أو المعرّف قبل اقتطاع limit.
+    """
+    conn = await _db_pool.get_connection()
+    convos: Dict[int, dict] = {}
+    async with conn.execute(
+        "SELECT telegram_id, action, created_at FROM logs "
+        "WHERE action IN ('SUPPORT_MSG','SUPPORT_REPLY') "
+        "ORDER BY telegram_id ASC, created_at ASC"
+    ) as cursor:
+        async for row in cursor:
+            uid = row[0]
+            c = convos.get(uid)
+            if c is None:
+                c = {
+                    "user_id": uid,
+                    "name": "",
+                    "last_activity_ts": 0,
+                    "last_direction": "user",
+                    "msg_count": 0,
+                    "reply_count": 0,
+                    "status": "open",
+                }
+                convos[uid] = c
+            c["last_activity_ts"] = row[2]
+            if row[1] == "SUPPORT_MSG":
+                c["msg_count"] += 1
+                c["last_direction"] = "user"
+            else:
+                c["reply_count"] += 1
+                c["last_direction"] = "admin"
+
+    query = q.strip().lower() if q else ""
+    results: List[dict] = []
+    for c in convos.values():
+        c["status"] = "open" if c["last_direction"] == "user" else "closed"
+        if status != "all" and status != c["status"]:
+            continue
+        user = await db_get_user(c["user_id"])
+        c["name"] = (user or {}).get("name", "") if user else ""
+        if query and query not in str(c["name"]).lower() and query not in str(c["user_id"]):
+            continue
+        results.append(c)
+
+    results.sort(key=lambda c: c["last_activity_ts"], reverse=True)
+    return results[: max(0, int(limit))]
+
+
+async def get_support_history(user_id: int, limit: int = 50) -> List[dict]:
+    """سجل محادثة دعم لمستخدم من جدول logs (من الأحدث للأقدم)."""
+    conn = await _db_pool.get_connection()
+    rows: List[dict] = []
+    async with conn.execute(
+        "SELECT action, detail, created_at FROM logs "
+        "WHERE telegram_id=? AND action IN ('SUPPORT_MSG','SUPPORT_REPLY') "
+        "ORDER BY created_at DESC LIMIT ?",
+        (user_id, int(limit)),
+    ) as cursor:
+        async for row in cursor:
+            rows.append({
+                "ts": row[2],
+                "direction": "user" if row[0] == "SUPPORT_MSG" else "admin",
+                "detail": row[1],
+            })
+    return rows
+
+
+async def send_support_reply(bot, user_id: int, text: str, actor: str = "dashboard",
+                             admin_id: int = 0, admin_name: str = "dashboard") -> Tuple[bool, str]:
+    """إرسال رد دعم لمستخدم (نفس رسالة تدفق تيليجرام) + تسجيل + تدقيق."""
+    assert_side_effect_safe()
+    try:
+        await bot.send_message(
+            user_id,
+            f"🛡️ <b>رد من الدعم:</b>\n\n{text}",
+            parse_mode="HTML",
+        )
+        await db_log(user_id, "SUPPORT_REPLY", detail=text, source="ADMIN")
+        await log_admin_action(admin_id, admin_name, "SUPPORT_REPLY",
+                               target_user_id=user_id, details=text[:200])
+        admin_trace("SUPPORT_REPLY", f"Reply to user {user_id} by {actor}", uid=str(user_id))
+        return (True, "تم إرسال الرد")
+    except Exception as e:
+        logger.error(f"send_support_reply error: {e}")
+        return (False, f"❌ تعذر إرسال الرد: {e}")
+
+
+# ==============================================================================
+# قراءة اللوجات (مع إخفاء الأسرار) — للوحة التحكم
+# ==============================================================================
+
+# أسماء الملفات المسموح بقراءتها (اسم العرض → مسار ضمن log_dir فقط)
+LOG_FILE_ALLOWLIST: Dict[str, Path] = {
+    "hasad_main": config.log_dir / "hasad_main.log",
+    "hasad_errors": config.log_dir / "hasad_errors.log",
+    "hasad_events": config.log_dir / "hasad_events.log",
+    "hasad_security": config.log_dir / "hasad_security.log",
+    "hasad_performance": config.log_dir / "hasad_performance.log",
+    "admin_trace": config.accounts_log,
+}
+
+
+def redact_log_text(text: str) -> str:
+    """إخفاء الأسرار (توكنات، مفاتيح، كلمات مرور) من نص لوج."""
+    out = text
+    secrets = [config.bot_token, config.jwt_secret, config.backup_password,
+               config.admin_password, config.dashboard_password_hash,
+               config.admin_dars_user, config.admin_dars_pass]
+    secrets += list(config.groq_keys) + list(config.gemini_keys)
+    for s in secrets:
+        if s:
+            out = out.replace(s, "[REDACTED]")
+    out = re.sub(r'gsk_[A-Za-z0-9]{10,}', "[REDACTED]", out)
+    out = re.sub(r'AIza[A-Za-z0-9_\-]{20,}', "[REDACTED]", out)
+    out = re.sub(r'Bearer\s+\S+', "[REDACTED]", out)
+    out = re.sub(r'(?i)(password|pass|token|secret)\s*[=:]\s*\S+', "[REDACTED]", out)
+    return out
+
+
+async def read_log_file(name: str, offset: int = 0, limit: int = 200, tail: bool = False) -> dict:
+    """قراءة ملف لوج مسموح مع إخفاء الأسرار (لا يُكشف المسار الكامل أبداً)."""
+    path = LOG_FILE_ALLOWLIST.get(name)
+    if path is None:
+        raise OperationBlocked("ملف غير مسموح")
+    limit = max(1, min(int(limit), 1000))
+    if not path.exists():
+        return {"name": name, "total_lines": 0, "lines": [], "truncated": False}
+    from collections import deque
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            if tail:
+                # قراءة حتى نهاية الملف: عدّ الأسطر + الاحتفاظ بآخر limit فقط (ذاكرة محدودة)
+                tail_lines = deque(maxlen=limit)
+                total_lines = 0
+                for ln in f:
+                    total_lines += 1
+                    tail_lines.append(ln.rstrip("\r\n"))
+                selected = list(tail_lines)
+                truncated = total_lines > limit
+            else:
+                start = max(0, int(offset))
+                selected = []
+                total_lines = 0
+                for ln in f:
+                    total_lines += 1
+                    if total_lines <= start or len(selected) >= limit:
+                        continue
+                    selected.append(ln.rstrip("\r\n"))
+                truncated = start + len(selected) < total_lines
+    except Exception as e:
+        logger.error(f"read_log_file error: {e}")
+        return {"name": name, "total_lines": 0, "lines": [], "truncated": False}
+
+    return {
+        "name": name,
+        "total_lines": total_lines,
+        "lines": [redact_log_text(ln) for ln in selected],
+        "truncated": truncated,
+    }
+
+
+async def get_user_log(uid: int, limit: int = 100, step_filter: str = None) -> dict:
+    """لوج مستخدم (نفس محلل handlers.user_log) مع إخفاء الأسرار."""
+    from hasad_bot.handlers.user_log import get_user_logs
+    entries = get_user_logs(uid, limit=limit, step_filter=step_filter)
+    redacted = []
+    for e in entries:
+        item = dict(e)
+        item["detail"] = redact_log_text(item.get("detail", ""))
+        redacted.append(item)
+    return {"uid": uid, "entries": redacted, "total": len(redacted)}
+
+
+async def get_admin_audit(q: str = "", action: str = "", limit: int = 100,
+                          after: float = None, before: float = None) -> List[dict]:
+    """سجل تدقيق الأدمن (admin_actions) مع فلترة وإخفاء الأسرار."""
+    conn = await _db_pool.get_connection()
+    sql = "SELECT * FROM admin_actions WHERE 1=1"
+    params: List = []
+    if action:
+        sql += " AND action_type LIKE ?"
+        params.append(f"%{action}%")
+    if q:
+        sql += " AND admin_name LIKE ?"
+        params.append(f"%{q}%")
+    if after is not None:
+        sql += " AND created_at >= ?"
+        params.append(after)
+    if before is not None:
+        sql += " AND created_at <= ?"
+        params.append(before)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(max(1, min(int(limit), 1000)))
+    rows: List[dict] = []
+    async with conn.execute(sql, tuple(params)) as cursor:
+        async for row in cursor:
+            d = dict(row)
+            if d.get("details"):
+                d["details"] = redact_log_text(str(d["details"]))
+            rows.append(d)
+    return rows
+
+
+# ==============================================================================
+# النسخ الاحتياطية (Backups) — مع قفل يمنع التصدير المتزامن
+# ==============================================================================
+
+_export_lock = asyncio.Lock()
+
+
+async def send_audit_logs(bot, chat_id=None):
+    """إرسال ZIP مشفر يحتوي admin_actions.csv (كل الصفوف) + admin_accounts_details.log (آخر 500 سطر)."""
+    assert_side_effect_safe()
+    import csv
+    channel_id = chat_id if chat_id is not None else config.backup_channel_id
+    if not channel_id:
+        raise OperationBlocked("BACKUP_CHANNEL_ID غير معرف")
+
+    zip_path = None
+    ok = False
+    try:
+        zip_filename = f"Hasad_AdminLogs_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        zip_path = Path(tempfile.gettempdir()) / zip_filename
+        with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED,
+                                 encryption=pyzipper.WZ_AES) as zipf:
+            zipf.setpassword(config.backup_password.encode())
+
+            # admin_actions.csv — كل الصفوف
+            csv_buffer = io.StringIO()
+            writer = csv.writer(csv_buffer)
+            conn = await _db_pool.get_connection()
+            async with conn.execute("SELECT * FROM admin_actions ORDER BY id DESC") as cursor:
+                writer.writerow([d[0] for d in cursor.description])
+                async for row in cursor:
+                    writer.writerow(tuple(row))
+            zipf.writestr("admin_actions.csv", csv_buffer.getvalue())
+
+            # admin_accounts_details.log — آخر 500 سطر (قراءة سطرية بذاكرة محدودة)
+            if config.accounts_log.exists():
+                from collections import deque
+                tail_lines = deque(maxlen=500)
+                with open(config.accounts_log, "r", encoding="utf-8", errors="ignore") as f:
+                    for ln in f:
+                        tail_lines.append(ln.rstrip("\r\n"))
+                zipf.writestr("admin_accounts_details.log", "\n".join(tail_lines) + "\n")
+
+        with open(zip_path, "rb") as f:
+            await bot.send_document(
+                chat_id=channel_id,
+                document=f,
+                filename=zip_filename,
+                caption=f"📜 <b>سجل التدقيق (Admin Logs)</b>\n🔐 **كلمة المرور:** `{config.backup_password}`\n📅 {now_hijri()}\n\n⚠️ ملف ZIP محمي (يفتح على الكمبيوتر)",
+                parse_mode="Markdown"
+            )
+        ok = True
+    finally:
+        if zip_path and zip_path.exists():
+            zip_path.unlink()
+    return ok
+
+
+async def run_backup(bot, kind: str, actor: str = "dashboard",
+                     admin_id: int = 0, admin_name: str = "dashboard") -> Tuple[bool, str]:
+    """تشغيل نسخة احتياطية (db | cv | admin_logs) وإرسالها لقناة النسخ الاحتياطي."""
+    assert_side_effect_safe()
+    if kind not in ("db", "cv", "admin_logs"):
+        return (False, f"❌ نوع نسخة احتياطية غير معروف: {kind}")
+    if _export_lock.locked():
+        return (False, "تصدير آخر قيد التنفيذ — انتظر اكتماله")
+    async with _export_lock:
+        try:
+            if kind == "db":
+                ok = await send_db_backup(bot)
+            elif kind == "cv":
+                ok = await send_cv_export(bot)
+            else:
+                ok = await send_audit_logs(bot)
+        except Exception as e:
+            logger.error(f"run_backup error: {e}")
+            return (False, f"❌ خطأ في النسخة الاحتياطية: {e}")
+        if not ok:
+            return (False, "❌ فشل إرسال النسخة الاحتياطية إلى القناة")
+        await log_admin_action(admin_id, admin_name, f"BACKUP_{kind.upper()}",
+                               details="sent to backup channel")
+        admin_trace(f"BACKUP_{kind.upper()}", f"Backup {kind} by {actor}")
+        return (True, "تم إنشاء النسخة الاحتياطية وإرسالها")
