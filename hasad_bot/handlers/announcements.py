@@ -285,10 +285,10 @@ async def ensure_announcement_tables():
         """)
         await conn.commit()
 
-        # Seeding القوالب الافتراضية (INSERT OR REPLACE يحدّث القوالب الموجودة)
+        # Seeding القوالب الافتراضية (INSERT OR IGNORE لا يمسّ القوالب الموجودة)
         for atype, tpl in DEFAULT_TEMPLATES.items():
             await conn.execute("""
-                INSERT OR REPLACE INTO announcement_templates
+                INSERT OR IGNORE INTO announcement_templates
                 (type, name_ar, template_text, target_filter, schedule_time, enabled, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, COALESCE((SELECT created_at FROM announcement_templates WHERE type = ?), ?), ?)
             """, (
@@ -475,14 +475,22 @@ async def send_announcement(bot: Bot, atype: str, manual: bool = False, progress
     admin_trace("ANNOUNCE_SEND", f"Sending {atype} to {len(targets)} users (manual={manual})", "SYSTEM")
 
     # الإرسال بمعدل محدود
+    processed = 0
     for i, user in enumerate(targets):
+        processed += 1
         uid = user.get("telegram_id")
         if not uid:
+            # إبلاغ المتصل بالتقدم (لوحة التحكم)
+            if progress_cb:
+                progress_cb({"done": processed, "total": len(targets), "sent": sent, "skipped": skipped, "errors": len(errors)})
             continue
 
         # تخطي لو استلم حديثاً (إلا لو manual)
         if not manual and await _was_sent_recently(uid, atype):
             skipped += 1
+            # إبلاغ المتصل بالتقدم (لوحة التحكم)
+            if progress_cb:
+                progress_cb({"done": processed, "total": len(targets), "sent": sent, "skipped": skipped, "errors": len(errors)})
             continue
 
         try:
@@ -508,7 +516,7 @@ async def send_announcement(bot: Bot, atype: str, manual: bool = False, progress
 
         # إبلاغ المتصل بالتقدم (لوحة التحكم)
         if progress_cb:
-            progress_cb({"done": i + 1, "total": len(targets), "sent": sent, "skipped": skipped, "errors": len(errors)})
+            progress_cb({"done": processed, "total": len(targets), "sent": sent, "skipped": skipped, "errors": len(errors)})
 
     admin_trace("ANNOUNCE_DONE", f"{atype}: sent={sent}, skipped={skipped}, errors={len(errors)}", "SYSTEM")
     return sent, skipped, errors

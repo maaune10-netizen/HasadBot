@@ -4,10 +4,14 @@
 """
 Admin actions, login logs, public mode flag, bot freeze flag, settings store.
 """
+import asyncio
 import time
 from loguru import logger
 
 from .pool import db_pool
+
+# قفل لتسلسل كتابة سجلات التدقيق على الاتصال المشترك (يمنع التراجع عن معاملة قيد التنفيذ لكوروتين أخرى)
+_audit_lock = asyncio.Lock()
 
 
 # ==============================================================================
@@ -76,25 +80,26 @@ async def log_admin_action(admin_id: int, admin_name: str, action_type: str,
                            target_user_id: int = None, target_user_name: str = None,
                            old_value: str = "", new_value: str = "", details: str = ""):
     """تسجيل أي إجراء يقوم به الأدمن"""
-    try:
-        conn = await db_pool.get_connection()
-        await conn.execute("""
-            INSERT INTO admin_actions
-            (admin_id, admin_name, action_type, target_user_id, target_user_name,
-             old_value, new_value, details, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (admin_id, admin_name, action_type, target_user_id, target_user_name,
-              old_value, new_value, details, time.time()))
-        await conn.commit()
-        logger.info(f"📝 Admin action logged: {admin_name} -> {action_type}")
-
-    except Exception as e:
-        # حرج: فشل INSERT يترك transaction مفتوح على الاتصال المشترك → قفل دائم للقاعدة
+    async with _audit_lock:
         try:
-            await conn.rollback()
-        except Exception:
-            pass
-        logger.error(f"Error logging admin action: {e}")
+            conn = await db_pool.get_connection()
+            await conn.execute("""
+                INSERT INTO admin_actions
+                (admin_id, admin_name, action_type, target_user_id, target_user_name,
+                 old_value, new_value, details, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (admin_id, admin_name, action_type, target_user_id, target_user_name,
+                  old_value, new_value, details, time.time()))
+            await conn.commit()
+            logger.info(f"📝 Admin action logged: {admin_name} -> {action_type}")
+
+        except Exception as e:
+            # حرج: فشل INSERT يترك transaction مفتوح على الاتصال المشترك → قفل دائم للقاعدة
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            logger.error(f"Error logging admin action: {e}")
 
 
 # ==============================================================================
@@ -104,22 +109,23 @@ async def log_admin_action(admin_id: int, admin_name: str, action_type: str,
 async def log_login_attempt(user_id: int, platform_user: str, success: bool = True,
                              error_message: str = "", ip_address: str = ""):
     """تسجيل محاولة تسجيل الدخول"""
-    try:
-        conn = await db_pool.get_connection()
-        await conn.execute("""
-            INSERT INTO login_logs
-            (user_id, platform_user, success, error_message, ip_address, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (user_id, platform_user, 1 if success else 0, error_message[:200], ip_address, time.time()))
-        await conn.commit()
-        logger.info(f"🔐 Login attempt logged: User={user_id}, Success={success}")
-
-    except Exception as e:
+    async with _audit_lock:
         try:
-            await conn.rollback()
-        except Exception:
-            pass
-        logger.error(f"Error logging login attempt: {e}")
+            conn = await db_pool.get_connection()
+            await conn.execute("""
+                INSERT INTO login_logs
+                (user_id, platform_user, success, error_message, ip_address, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (user_id, platform_user, 1 if success else 0, error_message[:200], ip_address, time.time()))
+            await conn.commit()
+            logger.info(f"🔐 Login attempt logged: User={user_id}, Success={success}")
+
+        except Exception as e:
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            logger.error(f"Error logging login attempt: {e}")
 
 
 async def populate_login_logs_from_history():

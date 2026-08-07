@@ -310,7 +310,9 @@ async def admin_broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYP
 
         skipped = 0
     else:
-        result = await send_broadcast(context.bot, target, text, actor="telegram")
+        result = await send_broadcast(context.bot, target, text, actor="telegram",
+                                      admin_id=update.effective_user.id,
+                                      admin_name=update.effective_user.full_name or "telegram")
         sent = result.get("sent", 0)
         failed = result.get("failed", 0)
         skipped = result.get("skipped", 0)

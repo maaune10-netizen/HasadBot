@@ -1873,7 +1873,7 @@ DASHBOARD_PAGE = """
     /* ===== Messaging: Broadcast + Announcements ===== */
     let broadcastCount = 0;
     let announcementsData = [];
-    let messagingPollTimer = null;
+    const messagingPollTimers = {};
 
     function setMessagingMsg(text, isError) {
         const el = document.getElementById('messaging-msg');
@@ -2011,7 +2011,9 @@ DASHBOARD_PAGE = """
                 <td>
                     <button class="action-btn action-btn-info" onclick="previewAnnouncement('${esc(String(t.type))}')">👁️ معاينة</button>
                     <button class="action-btn action-btn-warning" onclick="editAnnouncement('${esc(String(t.type))}')">✏️ تعديل</button>
-                    <button class="action-btn action-btn-primary" onclick="confirmAnnouncementSend('${esc(String(t.type))}')">📤 إرسال الآن</button>
+                    ${t.enabled
+                        ? `<button class="action-btn action-btn-primary" onclick="confirmAnnouncementSend('${esc(String(t.type))}')">📤 إرسال الآن</button>`
+                        : `<button class="action-btn action-btn-primary" disabled title="فعّل القالب أولاً">📤 إرسال الآن</button>`}
                 </td>
             </tr>
         `).join('');
@@ -2054,7 +2056,7 @@ DASHBOARD_PAGE = """
                 </div>
                 <div class="action-panel">
                     <div class="action-panel-title">👁️ عينة من الرسالة (${esc(data.sample_user_name || '—')})</div>
-                    <div style="background:var(--surface);border:1px dashed var(--primary-light);border-radius:var(--radius-sm);padding:12px">${data.sample_rendered || '<span style="color:var(--text-muted)">لا توجد عينة</span>'}</div>
+                    <div style="background:var(--surface);border:1px dashed var(--primary-light);border-radius:var(--radius-sm);padding:12px">${esc(data.sample_rendered) || '<span style="color:var(--text-muted)">لا توجد عينة</span>'}</div>
                 </div>
                 <div class="action-panel-btns">
                     <button class="action-btn action-btn-ghost" onclick="closeModal()">إغلاق</button>
@@ -2162,7 +2164,13 @@ DASHBOARD_PAGE = """
 
     /* ===== Send Job Progress (shared: broadcast + announcements) ===== */
     function pollSendJob(jobId, onProgress, onDone) {
-        if (messagingPollTimer) clearInterval(messagingPollTimer);
+        if (messagingPollTimers[jobId]) clearInterval(messagingPollTimers[jobId]);
+        const stop = () => {
+            if (messagingPollTimers[jobId]) {
+                clearInterval(messagingPollTimers[jobId]);
+                delete messagingPollTimers[jobId];
+            }
+        };
         const tick = async () => {
             let gone = false;
             try {
@@ -2172,25 +2180,25 @@ DASHBOARD_PAGE = """
                 } else {
                     const data = await res.json();
                     if (data && (data.success === false || data.error)) {
-                        clearInterval(messagingPollTimer);
+                        stop();
                         if (typeof onDone === 'function') onDone({ error: data.message || data.error });
                         return;
                     }
                     if (typeof onProgress === 'function') onProgress(data);
                     if (data && data.status === 'done') {
-                        clearInterval(messagingPollTimer);
+                        stop();
                         if (typeof onDone === 'function') onDone(data);
                     }
                 }
                 if (gone) {
-                    clearInterval(messagingPollTimer);
+                    stop();
                     if (typeof onDone === 'function') onDone({ gone: true });
                 }
             } catch(err) {
                 // تعثر شبكة مؤقت — نعيد المحاولة في الدورة القادمة
             }
         };
-        messagingPollTimer = setInterval(tick, 1500);
+        messagingPollTimers[jobId] = setInterval(tick, 1500);
         tick();
     }
 
@@ -3280,6 +3288,10 @@ async def admin_send_announcement(atype: str):
     try:
         if not await _announcement_type_exists(atype):
             return JSONResponse({"error": "النوع غير معروف"}, status_code=404)
+        from hasad_bot.handlers.announcements import get_template
+        tpl = await get_template(atype)
+        if tpl and not tpl["enabled"]:
+            return JSONResponse({"success": False, "message": "القالب معطّل — فعّله أولاً"}, status_code=400)
         bot = await _get_bot()
         from hasad_bot.admin_ops import start_announcement_send
         job_id = await start_announcement_send(bot, atype, actor="dashboard")

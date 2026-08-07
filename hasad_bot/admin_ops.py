@@ -877,6 +877,20 @@ SEND_JOBS: Dict[str, dict] = {}
 
 def get_send_job(job_id: str) -> Optional[dict]:
     """قراءة نسخة آمنة من بيانات وظيفة إرسال (نسخة وليس مرجع)."""
+    now = time.time()
+    # تنظيف الوظائف المنتهية منذ أكثر من ساعة لمنع نمو SEND_JOBS بلا حدود
+    for jid in [jid for jid, j in SEND_JOBS.items()
+                if j.get("status") == "done" and (j.get("finished_at") or 0) < now - 3600]:
+        SEND_JOBS.pop(jid, None)
+    # حد أقصى: إذا تجاوز العدد 200 وظيفة، احذف أقدم الوظائف المنتهية
+    if len(SEND_JOBS) > 200:
+        done_jobs = sorted(
+            (jid for jid, j in SEND_JOBS.items() if j.get("status") == "done"),
+            key=lambda jid: SEND_JOBS[jid].get("finished_at") or 0,
+        )
+        for jid in done_jobs[: len(SEND_JOBS) - 200]:
+            SEND_JOBS.pop(jid, None)
+
     job = SEND_JOBS.get(job_id)
     if job is None:
         return None
@@ -888,10 +902,12 @@ def _new_job_id() -> str:
     return uuid4().hex
 
 
-async def send_broadcast(bot, target: str, text: str, actor: str = "dashboard", progress_cb=None) -> dict:
+async def send_broadcast(bot, target: str, text: str, actor: str = "dashboard", progress_cb=None,
+                         admin_id: int = 0, admin_name: str = None) -> dict:
     """إرسال رسالة جماعية نصية لفئة مستخدمين (نفس منطق admin_broadcast_send).
 
     target: all | subscribed | not_subscribed | linked | not_linked
+    admin_id/admin_name: هوية الأدمن لسجل التدقيق (admin_name يقع افتراضياً على actor).
     Returns: {"sent": n, "failed": n, "skipped": n, "errors": [...]}
     """
     valid_targets = ("all", "subscribed", "not_subscribed", "linked", "not_linked")
@@ -933,7 +949,7 @@ async def send_broadcast(bot, target: str, text: str, actor: str = "dashboard", 
                 "skipped": skipped,
             })
 
-    await log_admin_action(0, actor, "BROADCAST_SENT",
+    await log_admin_action(admin_id, admin_name or actor, "BROADCAST_SENT",
                            details=f"target={target} total={total} sent={sent} failed={failed} skipped={skipped}")
     admin_trace("BROADCAST_DONE", f"target={target} total={total} sent={sent} failed={failed} skipped={skipped}", actor)
 
@@ -951,7 +967,8 @@ def _update_job_progress(job_id: str, p: dict):
     job["total"] = p.get("total", job["total"])
 
 
-async def start_broadcast(bot, target: str, text: str, actor: str = "dashboard") -> str:
+async def start_broadcast(bot, target: str, text: str, actor: str = "dashboard",
+                          admin_id: int = 0, admin_name: str = None) -> str:
     """إنشاء وظيفة إرسال جماعي وتشغيلها في الخلفية. يرجع job_id."""
     job_id = _new_job_id()
     total = await get_users_count_by_target(target)
@@ -968,11 +985,12 @@ async def start_broadcast(bot, target: str, text: str, actor: str = "dashboard")
         "started_at": time.time(),
         "finished_at": None,
     }
-    asyncio.create_task(_run_broadcast_job(job_id, bot, target, text, actor))
+    asyncio.create_task(_run_broadcast_job(job_id, bot, target, text, actor, admin_id, admin_name))
     return job_id
 
 
-async def _run_broadcast_job(job_id: str, bot, target: str, text: str, actor: str):
+async def _run_broadcast_job(job_id: str, bot, target: str, text: str, actor: str,
+                             admin_id: int = 0, admin_name: str = None):
     """تنفيذ وظيفة الإرسال الجماعي وتحديث الحالة."""
     job = SEND_JOBS[job_id]
     job["status"] = "running"
@@ -980,6 +998,7 @@ async def _run_broadcast_job(job_id: str, bot, target: str, text: str, actor: st
         result = await send_broadcast(
             bot, target, text, actor=actor,
             progress_cb=lambda p: _update_job_progress(job_id, p),
+            admin_id=admin_id, admin_name=admin_name,
         )
         job["sent"] = result["sent"]
         job["failed"] = result["failed"]
@@ -1025,16 +1044,20 @@ async def _run_announcement_job(job_id: str, bot, atype: str, actor: str):
             job["sent"] = p.get("sent", 0)
             job["skipped"] = p.get("skipped", 0)
             job["total"] = p.get("total", job["total"])
-            job["errors"] = p.get("errors", 0)  # عدد مؤقت أثناء التقدم، يُستبدل بالقائمة عند الاكتمال
+            job["progress_errors"] = p.get("errors", 0)  # عدد مؤقت أثناء التقدم
 
         sent, skipped, errors = await send_announcement(bot, atype, manual=True, progress_cb=_cb)
         job["sent"] = sent
         job["skipped"] = skipped
+        job["failed"] = len(errors)
         job["errors"] = errors
         await log_admin_action(0, actor, "ANNOUNCEMENT_SENT",
                                details=f"type={atype} sent={sent} skipped={skipped} errors={len(errors)}")
         admin_trace("ANNOUNCEMENT_SENT", f"type={atype} sent={sent} skipped={skipped} errors={len(errors)} by {actor}", actor)
     except Exception as e:
+        job.setdefault("errors", [])
+        if not isinstance(job["errors"], list):
+            job["errors"] = []
         job["errors"].append(str(e)[:200])
         logger.error(f"announcement job {job_id} error: {e}")
     finally:
