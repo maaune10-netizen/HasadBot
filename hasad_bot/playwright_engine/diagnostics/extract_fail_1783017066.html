@@ -1,0 +1,2024 @@
+<!DOCTYPE html><html><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> قائمة الواجبات</title>
+    <link rel="stylesheet" href="/lib/bootstrap.4.3.rtl/css/bootstrap.min.css?v=86">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.css">
+
+
+<link rel="stylesheet" href="/web/css/gray.css?v=86">
+<link rel="stylesheet" href="/web/css/style.css?v=86">
+
+
+
+<link rel="stylesheet" href="/theme/_shared/site.css?v=86">
+<link rel="stylesheet" href="/theme/_shared/site.rtl.css?v=86">
+<link rel="stylesheet" href="/theme/gray/site.css?v=86">
+<link rel="stylesheet" href="/lib/fontawesome/css/all.css?v=86">
+
+
+<link rel="stylesheet" href="/theme/_shared/metismenujs.css?v=86">
+
+<link rel="stylesheet" href="/theme/_shared/timeline.rtl.css" ?v="+86">
+
+<link rel="stylesheet" href="/lib/rating/themes/bars-1to10.css?v=86">
+
+<link href="/lib/select2/css/select2.min.css?v=86" rel="stylesheet" type="text/css">
+
+<link href="/lib/toastr/css/toastr.min.css?v=86" rel="stylesheet" type="text/css">
+<link href="/lib/fileinput/css/fileinput.css?v=86" media="all" rel="stylesheet" type="text/css">
+
+    <link rel="stylesheet" href="/theme/_shared/datatable.rtl.css?v=86">
+    <link href="/Module/ShortcutMenu/ShortcutMenu.css?v=86" rel="stylesheet">
+<link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.3.1/semantic.min.css?v=86">
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.19/css/dataTables.semanticui.min.css?v=86">
+
+<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/timepicker/1.3.5/jquery.timepicker.min.css?v=86">
+
+<link href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.8/themes/default/style.min.css" rel="stylesheet">
+<link href="/lib/jstree/css/jstree.rtl.css?v=86" rel="stylesheet">
+
+<link href="https://cdnjs.cloudflare.com/ajax/libs/dropzone/4.3.0/dropzone.css?v=86" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/dropzone/4.3.0/basic.css?v=86" rel="stylesheet">
+<link href="/lib/dropzone/dropzone.css?v=86" rel="stylesheet">
+<link href="/theme/_shared/on-print.css" rel="stylesheet">
+<link href="/module/confirmation.css" rel="stylesheet">
+
+    
+    <script src="/lib/jquery/dist/jquery.min.js?v=80"></script>
+<script src="/js/utils.js?v=80"></script>
+<script></script>
+
+
+<style>.cke{visibility:hidden;}</style><style type="text/css">/* Chart.js */
+@-webkit-keyframes chartjs-render-animation{from{opacity:0.99}to{opacity:1}}@keyframes chartjs-render-animation{from{opacity:0.99}to{opacity:1}}.chartjs-render-monitor{-webkit-animation:chartjs-render-animation 0.001s;animation:chartjs-render-animation 0.001s;}</style></head>
+<body class="">
+    
+
+<div id="spinner" class="spinner" style="display: none;">
+	<div class="outerLoader"><div class="loader"></div></div>
+</div>
+    <!-- Social Media Sidebar -->
+<style>
+ .social-sidebar 
+ {
+ display:none;
+ }
+</style>
+    <style>
+        .social-sidebar {
+        position: fixed;
+        top: 50%;
+        left: 0;
+        transform: translateY(-50%);
+        z-index: 1000;
+        }
+
+        .social-sidebar a {
+        display: block;
+        width: 45px;
+        height: 45px;
+        background-color: #b6ecff !important;
+        color: #fff;
+        text-align: center;
+        line-height: 45px;
+        margin: 5px 0;
+        transition: all 0.3s ease-in-out;
+        border-radius: 0 8px 8px 0;
+        font-size: 20px;
+        }
+
+        .social-sidebar a:hover {
+        background-color: #007bff;
+        color: #fff;
+        transform: translateX(5px);
+        }
+
+        .chat-box {
+        height: 500px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 10px;
+        padding: 15px;
+        background-color: #fff;
+        }
+
+        .message {
+        margin-bottom: 15px;
+        max-width: 90%;
+        line-height: 1.6;
+        letter-spacing: 0.5px;
+        word-spacing: 2px;
+        }
+
+        .message.user {
+        align-self: flex-end;
+        background-color: #d1e7dd;
+        border-radius: 15px 15px 0 15px;
+        padding: 10px;
+        }
+
+        .message.bot {
+        align-self: flex-start;
+        background-color: #f7f7f7;
+        border-radius: 15px 15px 15px 0;
+        padding: 10px;
+        white-space: pre-line;
+        }
+
+        .chat-input {
+        border-radius: 0 0 10px 10px;
+        }
+    </style>
+
+
+<div class="social-sidebar">
+    <a href="#" target="_blank" class="twitter">
+        <i class="fas fa-user-graduate fa-lg"></i>
+    </a>
+    <a href="#" class="facebook" data-bs-toggle="modal" data-bs-target="#facebookModal" onclick="displaymodal('facebookModal')">
+        <img src="/imgs/icons8-chatgpt.svg">
+    </a>
+    <a href="" target="_blank" class="linkedin">
+        <i class="fas fa-microphone-alt fa-lg"></i>
+    </a>
+</div>
+
+<div class="modal fade d-none" id="facebookModal" tabindex="-1" aria-labelledby="facebookModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="facebookModalLabel"> دردشه عامه  </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="إغلاق"></button>
+            </div>
+            <div class="modal-body">
+                <div class="">
+                    <div class="row justify-content-center">
+                        <div class="col-md-12 d-flex flex-column">
+                            <div class="chat-box d-flex flex-column mb-3" id="chatBox">
+                                <div class="message bot">أهلاً! كيف يمكنني مساعدتك؟</div>
+</div>
+                            <div class=" chat-input">
+                                <textarea class="form-control" rows="4" placeholder="اكتب رسالتك..." onkeypress="sendMessage(event,this)" style=""> </textarea>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+
+
+    function displaymodal(id) {
+        $("#" + id).removeClass("d-none");
+    }
+
+</script>
+    <div class="wrapper" id="maindiv">
+        <div class="side-menu-wrapper no-print">
+            <div class="logo-wrapper text-center w-100">
+                <div class="logo-inner-wrapper " title="مدارس الأمجاد - المجمع الأول">
+                    <img src="/FileStorage/689eae7f-69ef-4b2b-bf74-481211efb7ef.png" onerror="~/imgs/logo-c.svg" style="object-fit: fill;background-color: white;">
+                </div>
+            </div>
+            <div class="today-wrapper latin-font text-center">
+                <span class="today-wrapperDate"> Thursday 02-07-2026 </span><br>
+                <span class="today-wrapperDate" id="time" style="direction:ltr">9:31:06 م</span>
+                <div class="position-relative">
+                    <input type="text" onkeyup="filterMenu()" placeholder="إبحث هنا  ...." class="form-control  mt-1 filter-menu-search " tabindex="0" style="">
+                    <span class="icon_FO"><i class="fas fa-search"></i></span>
+                </div>
+            </div>
+            <div class="nac_BARs sidebar-nav">
+                <div class="row main-menu" dir="rtl">
+    <nav class="sidebar-nav">
+        <ul class="metismenu collapse in" id="SideMenu" aria-expanded="true">
+            <li class="bg-menu-theme" title="الرئيسية">
+                <a href="/" aria-expanded="false">
+                    <span class="fa fa-home sidemenu-icon"></span>
+                    <span class=" menu-item-title ">الرئيسية</span>
+                </a>
+            </li>
+            <li class="bg-menu-theme" title="الرئيسية">
+                <a href="/BasicData/SchoolPolicy/Details" aria-expanded="false">
+                    <span class="fas fa-book-reader sidemenu-icon"></span>
+                    <span class=" menu-item-title ">شروط وأحكام المدرسة</span>
+                </a>
+            </li>
+            <li class="bg-menu-theme" title="مركز الإشعارات">
+                <a href="/Notification/Notification/List" aria-expanded="false">
+                    <span class="fa fa-comments sidemenu-icon"></span>
+                    <span class=" menu-item-title"> مركز الإشعارات </span>
+                </a>
+            </li>
+                    <li class="parentMenu" title="المهام اليومية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fa fa-calendar-day sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المهام اليومية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المهام اليومية
+                </li>
+                        <li>
+                            <a href="/DailyWorkingAgenda/DailyWorking/List" rel-href="/DailyWorkingAgenda/DailyWorking/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول المهام اليومية</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="التقويم الدراسي">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-alt sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> التقويم الدراسي </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    التقويم الدراسي
+                </li>
+                        <li>
+                            <a href="/AcademicCalendar/Dashboard/Index" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> لوحة قياس الأداء</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/AcademicCalendar/PublicEvent/Calendar" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التقويم العام</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/AcademicCalendar/PersonalEventCategory/List" rel-href="/AcademicCalendar/PersonalEventCategory/New,/AcademicCalendar/PersonalEventCategory/Edit,/AcademicCalendar/PersonalEventCategory/Save">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التصنيف الشخصي للأحداث</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/AcademicCalendar/PersonalEvent/Calendar" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التقويم الشخصي</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="المنشورات اليومية ">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fad fa-comments-alt sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المنشورات اليومية  </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المنشورات اليومية 
+                </li>
+                        <li>
+                            <a href="/DailyPost/student/SubjectPost" rel-href="/DailyPost/student/Post,/DailyPost/student/SubjectPost">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title">  المنشورات  حسب المادة</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/DailyPost/Post/StudentList" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> منشورات اليوم </span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="حضور وانضباط الطلاب">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-user-clock fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> حضور وانضباط الطلاب </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    حضور وانضباط الطلاب
+                </li>
+                        <li>
+                            <a href="/StudentAttendance/Dashboard/Personal" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> تقرير الحضور والانضباط</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="جدول الحصص الإفتراضية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-th fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> جدول الحصص الإفتراضية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    جدول الحصص الإفتراضية
+                </li>
+                        <li>
+                            <a href="/VirtualClassTimeTable/ClassTimeTable/Student" rel-href="/VirtualClassTimeTable/ClassTimeTable/Student,/VirtualClassTimeTable/ClassTimeTable/AttendStudent,/VirtualClassTimeTable/ClassTimeTable/AttendStudentFromSafari">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الحصص اليومي</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/VirtualClassTimeTable/ClassTimeTable/StudentWeekVClass" rel-href="/VirtualClassTimeTable/ClassTimeTable/StudentWeekVClass">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الحصص الاسبوعى</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الخطة الإسبوعية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-check sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الخطة الإسبوعية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الخطة الإسبوعية
+                </li>
+                        <li>
+                            <a href="/WeeklyPlan/Student/List" rel-href="/WeeklyPlan/Student/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الخطة الإسبوعية</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/WeeklyPlan/Report/StudentReport" rel-href="/WeeklyPlan/Report/StudentReport">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> تقرير الخطة الإسبوعية</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="النوتة الإلكترونية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-clipboard sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> النوتة الإلكترونية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    النوتة الإلكترونية
+                </li>
+                        <li>
+                            <a href="/Lesson/Student/NoteBook" rel-href="/Lesson/Student/NoteBook">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> النوتة الإلكترونية</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="جدول الاختبارات الفصلية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-check sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> جدول الاختبارات الفصلية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    جدول الاختبارات الفصلية
+                </li>
+                        <li>
+                            <a href="/ExamSchedule/Student/ExamList" rel-href="/ExamSchedule/Student/ExamList">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الاختبارات</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="جدول الاختبارات الدورية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-check sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> جدول الاختبارات الدورية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    جدول الاختبارات الدورية
+                </li>
+                        <li>
+                            <a href="/PeriodicExam/Student/PeriodicExamList" rel-href="/PeriodicExam/Student/PeriodicExamList">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الاختبارات</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="بطاقة تعزيز السلوك">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-medal fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> بطاقة تعزيز السلوك </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    بطاقة تعزيز السلوك
+                </li>
+                        <li>
+                            <a href="/BehaviorCard/studentcard/CardList" rel-href="/BehaviorCard/studentcard/CardList">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> البطاقات</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="شهادات الفترة">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-diploma fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> شهادات الفترة </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    شهادات الفترة
+                </li>
+                        <li>
+                            <a href="/MarkRecord/Report/StudentGrade" rel-href="/MarkRecord/Report/StudentGrade">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> بيان درجات الفترة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="المحتوى الإلكتروني">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class=" fad fa-books fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المحتوى الإلكتروني </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المحتوى الإلكتروني
+                </li>
+                        <li>
+                            <a href="/SubjectContent/SubjectContent/index" rel-href="/SubjectContent/SubjectContent/index">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> استعراض المحتوى</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="المناهج الالكترونية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class=" fad fa-books fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المناهج الالكترونية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المناهج الالكترونية
+                </li>
+                        <li>
+                            <a href="/SharedCurriculum/Content/Browse" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> إستعراض المناهج الدراسية</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/SharedCurriculum/Content/Favorite" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title">  المناهج الدراسية المفضلة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الدروس التفاعلية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fad fa-presentation fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الدروس التفاعلية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الدروس التفاعلية
+                </li>
+                        <li>
+                            <a href="/ActiveLesson/Student/list" rel-href="/ActiveLesson/Student/Presentation,/ActiveLesson/Student/list">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الدروس التفاعليه حسب المادة</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/ActiveLesson/Student/Today" rel-href="/ActiveLesson/Student/Today">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الدروس التفاعلية لليوم</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="بنك الأسئلة">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-question fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> بنك الأسئلة </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    بنك الأسئلة
+                </li>
+                        <li>
+                            <a href="/BankQuestion/BankQuestion/Training" rel-href="/BankQuestion/BankQuestion/Training">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التدريب على الدرس</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/BankQuestion/BankQuestion/Competition" rel-href="/BankQuestion/BankQuestion/Competition">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> سباق الأسئلة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu active" title="الواجبات الإلكترونية" aria-expanded="true">
+            <a class="has-arrow current-parent-node" href="#" aria-expanded="false">
+                <span class="fas fa-pencil-ruler fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الواجبات الإلكترونية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems in" aria-expanded="true">
+                <li class="title_  bg-menu-theme main-menu">
+                    الواجبات الإلكترونية
+                </li>
+                        <li aria-expanded="true" class="active">
+                            <a href="/Homework/Homework/StudentHomework" rel-href="/Homework/Homework/StudentHomework,/Homework/Homework/ExecuteQuiz,/Homework/Homework/ModelAnswer">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الواجبات</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/Homework/Student/Subject" rel-href="/Homework/Student/Subject">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الواجبات حسب المادة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الاختبارات الإلكترونية ">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fad fa-alarm-clock fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الاختبارات الإلكترونية  </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الاختبارات الإلكترونية 
+                </li>
+                        <li>
+                            <a href="/Exams/Exams/StudentExams" rel-href="/Exams/Exams/ExecuteQuiz,/Exams/Exams/StudentExams,/Exams/Exams/ModelAnswer">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الاختبارات</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/Exams/Student/Subject" rel-href="/Exams/Student/Subject">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الاختبارات حسب المادة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الواجبات و أوراق العمل">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fa-file-spreadsheet sidemenu-icon fad"></span>
+                <span class="menu-item-title parent-menu-item"> الواجبات و أوراق العمل </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الواجبات و أوراق العمل
+                </li>
+                        <li>
+                            <a href="/WorkSheet/Student/List" rel-href="/WorkSheet/Student/Details,/WorkSheet/Student/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الواجبات و أوراق العمل</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/WorkSheet/Student/Subject" rel-href="/WorkSheet/Student/Subject">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> أوراق العمل حسب المادة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="سؤال وجواب">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-comment-dots sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> سؤال وجواب </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    سؤال وجواب
+                </li>
+                        <li>
+                            <a href="/QuestionAndAnswer/Student/List" rel-href="/QuestionAndAnswer/Student/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الأسئلة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+
+        </ul>
+    </nav>
+</div>
+
+<div class="row burger-menu" dir="rtl">
+    <nav class="sidebar-nav is-hoverable">
+        <ul id="BurgerMenu" class="metismenu">
+            <li>
+                <a aria-expanded="false"> <i class="fas fa-bars fa-lg w-color burger-menu-icon"></i></a>
+                <ul class="collapse">
+                    <li>
+                        <a href="/" aria-expanded="false">
+                            <span class="fa fa-home sidemenu-icon"></span>
+                            <span class="menu-item-title"> الرئيسية</span>
+                        </a>
+                    </li>
+                    <li class="bg-menu-theme" title="الرئيسية">
+                        <a href="/BasicData/SchoolPolicy/Details" aria-expanded="false">
+                            <span class="fas fa-book-reader sidemenu-icon"></span>
+                            <span class=" menu-item-title ">شروط وأحكام المدرسة</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/Notification/Notification/List" aria-expanded="false">
+                            <span class="fa fa-comments sidemenu-icon"></span>
+                            <span> مركز الإشعارات </span>
+                        </a>
+                    </li>
+                            <li class="parentMenu" title="المهام اليومية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fa fa-calendar-day sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المهام اليومية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المهام اليومية
+                </li>
+                        <li>
+                            <a href="/DailyWorkingAgenda/DailyWorking/List" rel-href="/DailyWorkingAgenda/DailyWorking/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول المهام اليومية</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="التقويم الدراسي">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-alt sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> التقويم الدراسي </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    التقويم الدراسي
+                </li>
+                        <li>
+                            <a href="/AcademicCalendar/Dashboard/Index" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> لوحة قياس الأداء</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/AcademicCalendar/PublicEvent/Calendar" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التقويم العام</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/AcademicCalendar/PersonalEventCategory/List" rel-href="/AcademicCalendar/PersonalEventCategory/New,/AcademicCalendar/PersonalEventCategory/Edit,/AcademicCalendar/PersonalEventCategory/Save">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التصنيف الشخصي للأحداث</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/AcademicCalendar/PersonalEvent/Calendar" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التقويم الشخصي</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="المنشورات اليومية ">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fad fa-comments-alt sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المنشورات اليومية  </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المنشورات اليومية 
+                </li>
+                        <li>
+                            <a href="/DailyPost/student/SubjectPost" rel-href="/DailyPost/student/Post,/DailyPost/student/SubjectPost">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title">  المنشورات  حسب المادة</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/DailyPost/Post/StudentList" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> منشورات اليوم </span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="حضور وانضباط الطلاب">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-user-clock fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> حضور وانضباط الطلاب </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    حضور وانضباط الطلاب
+                </li>
+                        <li>
+                            <a href="/StudentAttendance/Dashboard/Personal" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> تقرير الحضور والانضباط</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="جدول الحصص الإفتراضية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-th fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> جدول الحصص الإفتراضية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    جدول الحصص الإفتراضية
+                </li>
+                        <li>
+                            <a href="/VirtualClassTimeTable/ClassTimeTable/Student" rel-href="/VirtualClassTimeTable/ClassTimeTable/Student,/VirtualClassTimeTable/ClassTimeTable/AttendStudent,/VirtualClassTimeTable/ClassTimeTable/AttendStudentFromSafari">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الحصص اليومي</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/VirtualClassTimeTable/ClassTimeTable/StudentWeekVClass" rel-href="/VirtualClassTimeTable/ClassTimeTable/StudentWeekVClass">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الحصص الاسبوعى</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الخطة الإسبوعية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-check sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الخطة الإسبوعية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الخطة الإسبوعية
+                </li>
+                        <li>
+                            <a href="/WeeklyPlan/Student/List" rel-href="/WeeklyPlan/Student/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الخطة الإسبوعية</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/WeeklyPlan/Report/StudentReport" rel-href="/WeeklyPlan/Report/StudentReport">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> تقرير الخطة الإسبوعية</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="النوتة الإلكترونية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-clipboard sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> النوتة الإلكترونية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    النوتة الإلكترونية
+                </li>
+                        <li>
+                            <a href="/Lesson/Student/NoteBook" rel-href="/Lesson/Student/NoteBook">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> النوتة الإلكترونية</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="جدول الاختبارات الفصلية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-check sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> جدول الاختبارات الفصلية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    جدول الاختبارات الفصلية
+                </li>
+                        <li>
+                            <a href="/ExamSchedule/Student/ExamList" rel-href="/ExamSchedule/Student/ExamList">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الاختبارات</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="جدول الاختبارات الدورية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-calendar-check sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> جدول الاختبارات الدورية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    جدول الاختبارات الدورية
+                </li>
+                        <li>
+                            <a href="/PeriodicExam/Student/PeriodicExamList" rel-href="/PeriodicExam/Student/PeriodicExamList">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> جدول الاختبارات</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="بطاقة تعزيز السلوك">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-medal fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> بطاقة تعزيز السلوك </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    بطاقة تعزيز السلوك
+                </li>
+                        <li>
+                            <a href="/BehaviorCard/studentcard/CardList" rel-href="/BehaviorCard/studentcard/CardList">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> البطاقات</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="شهادات الفترة">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-diploma fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> شهادات الفترة </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    شهادات الفترة
+                </li>
+                        <li>
+                            <a href="/MarkRecord/Report/StudentGrade" rel-href="/MarkRecord/Report/StudentGrade">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> بيان درجات الفترة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="المحتوى الإلكتروني">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class=" fad fa-books fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المحتوى الإلكتروني </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المحتوى الإلكتروني
+                </li>
+                        <li>
+                            <a href="/SubjectContent/SubjectContent/index" rel-href="/SubjectContent/SubjectContent/index">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> استعراض المحتوى</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="المناهج الالكترونية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class=" fad fa-books fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> المناهج الالكترونية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    المناهج الالكترونية
+                </li>
+                        <li>
+                            <a href="/SharedCurriculum/Content/Browse" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> إستعراض المناهج الدراسية</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/SharedCurriculum/Content/Favorite" rel-href="/">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title">  المناهج الدراسية المفضلة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الدروس التفاعلية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fad fa-presentation fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الدروس التفاعلية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الدروس التفاعلية
+                </li>
+                        <li>
+                            <a href="/ActiveLesson/Student/list" rel-href="/ActiveLesson/Student/Presentation,/ActiveLesson/Student/list">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الدروس التفاعليه حسب المادة</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/ActiveLesson/Student/Today" rel-href="/ActiveLesson/Student/Today">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الدروس التفاعلية لليوم</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="بنك الأسئلة">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-question fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> بنك الأسئلة </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    بنك الأسئلة
+                </li>
+                        <li>
+                            <a href="/BankQuestion/BankQuestion/Training" rel-href="/BankQuestion/BankQuestion/Training">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> التدريب على الدرس</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/BankQuestion/BankQuestion/Competition" rel-href="/BankQuestion/BankQuestion/Competition">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> سباق الأسئلة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الواجبات الإلكترونية">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-pencil-ruler fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الواجبات الإلكترونية </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الواجبات الإلكترونية
+                </li>
+                        <li>
+                            <a href="/Homework/Homework/StudentHomework" rel-href="/Homework/Homework/StudentHomework,/Homework/Homework/ExecuteQuiz,/Homework/Homework/ModelAnswer">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الواجبات</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/Homework/Student/Subject" rel-href="/Homework/Student/Subject">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الواجبات حسب المادة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الاختبارات الإلكترونية ">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fad fa-alarm-clock fa-menu-item sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> الاختبارات الإلكترونية  </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الاختبارات الإلكترونية 
+                </li>
+                        <li>
+                            <a href="/Exams/Exams/StudentExams" rel-href="/Exams/Exams/ExecuteQuiz,/Exams/Exams/StudentExams,/Exams/Exams/ModelAnswer">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الاختبارات</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/Exams/Student/Subject" rel-href="/Exams/Student/Subject">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> الاختبارات حسب المادة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="الواجبات و أوراق العمل">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fa-file-spreadsheet sidemenu-icon fad"></span>
+                <span class="menu-item-title parent-menu-item"> الواجبات و أوراق العمل </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    الواجبات و أوراق العمل
+                </li>
+                        <li>
+                            <a href="/WorkSheet/Student/List" rel-href="/WorkSheet/Student/Details,/WorkSheet/Student/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الواجبات و أوراق العمل</span>
+
+                            </a>
+                        </li>
+                        <li>
+                            <a href="/WorkSheet/Student/Subject" rel-href="/WorkSheet/Student/Subject">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> أوراق العمل حسب المادة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+        <li class="parentMenu" title="سؤال وجواب">
+            <a class="has-arrow" href="#" aria-expanded="false">
+                <span class="fas fa-comment-dots sidemenu-icon"></span>
+                <span class="menu-item-title parent-menu-item"> سؤال وجواب </span>
+                
+            </a>
+            <ul class="collapse bg-menu-theme menuitems">
+                <li class="title_  bg-menu-theme main-menu">
+                    سؤال وجواب
+                </li>
+                        <li>
+                            <a href="/QuestionAndAnswer/Student/List" rel-href="/QuestionAndAnswer/Student/List">
+                                <span class="menu-dot"></span> <span class="default-font menu-item-title"> قائمة الأسئلة</span>
+
+                            </a>
+                        </li>
+            </ul>
+        </li>
+
+                </ul>
+            </li>
+        </ul>
+    </nav>
+</div>
+            </div>
+        </div>
+        <div class="page-wrapper">
+            <div class="row">
+                <div class="col-sm-12">
+                    <div class="row">
+                        <div class="col-sm-12 no-print">
+                            <header class="header-wrapper header-fixed">
+                                
+
+<div class="d-flex justify-content-between">
+    <a href="#" class="btn_terminal " id="tooltip" role="tooltip">
+        <i class="fas fa-bars terminalicon main-menu"></i>
+        <i class="fas fa-arrow-left arrowicon d-none main-menu"></i>
+    </a>
+    <div class="top_links_HED">
+
+        <div class="header-group">
+            
+<style>
+    .user-branch {
+        width: 202px;
+        background-color: unset !important;
+        color: #246bde ;
+        height: 20px !important;
+        min-height: 27px !important;
+    }
+</style>
+        <span id="User-Branch" class="default-font p-0 m-0 user-branch" branch-id="1">الأمجاد الأولى</span>
+
+        </div>
+        <div class="header-group mx-2">
+            
+<style>
+    .user-branch {
+        width: 202px;
+        background-color: unset !important;
+        color: #246bde;
+        height: 20px !important;
+        min-height: 27px !important;
+    }
+</style>
+        <span id="User-Role" class="default-font p-0 m-0 user-branch" branch-id="13">الطالب</span>
+
+        </div>
+        <div>
+            <div class="cart-items cmd" onclick="location.href='/OnlineStore/Cart/MyCart'">
+                    <span class="cart_NU  default-font text-orange"></span>
+                <i class="fal fa-cart-arrow-down"></i>
+            </div>
+        </div>
+        <div>
+            <aside class="open_lists cmd">
+                <i class="fas fa-bell"></i>
+            </aside>
+            <div class="lists_top_links2 outer_lists">
+                <div class="notfication-wrapper">
+                    <h>
+                        <span class="default-font">الإشعارات </span>
+                    </h>
+                </div>
+                <div class="tabs_header_">
+                    <div class="tab-pane_ tab-pane_1">
+                        
+    <ul class="massege_TAb">
+        <li class="panel-sub-title  text-center justify-content-center">
+
+            <i class="fas fa-info-circle text-danger"></i>
+            <span class="default-font text-secondary">لا توجد إشعارات جديدة </span>
+
+        </li>
+    </ul>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div>
+            <aside class="open_lists">
+                    <img src="/FileStorage/avater.png">
+            </aside>
+            <div class="lists_top_links outer_lists rtl">
+                <div class="notfication-wrapper">
+                        <img src="/FileStorage/avater.png" class="p-1">
+                    <div class="default-font">
+                        <span class="default-font text-theme">مرحباً</span>  <span class="default-font text-theme"> مراد</span>
+                    </div>
+                </div>
+                <ul>
+                    <li>
+                        <a class="item " href="/Account/setting">
+                            <span class=" default-font">
+                                <i class="fas fa-pencil-alt">
+                                </i>
+                                المعلومات الشخصية
+                            </span>
+                        </a>
+                    </li>
+                        <li>
+                            <a class="item" target="_blank" href="https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize?client_id=6cc8d488-f7c2-454c-8403-fe16e07c71a5&amp;redirect_uri=https%3A%2F%2Fschools.madrasati.sa%2F&amp;response_type=code&amp;prompt=select_account&amp;scope=openid%20profile%20OnlineMeetings.ReadWrite%20user.read%20offline_access&amp;code_challenge=TURF8PIB5MbuN-5szuSw2EywGaScehl6LyOvs3VL-H4&amp;code_challenge_method=S256&amp;response_mode=form_post&amp;nonce=638820305772233993.YjE0MTc5MmUtZDJjZC00NzhiLWI0ZTItZTNhZmMzYzkzOGQ1MWUwNjY5MjctMTM5Yi00YTRmLWFjYTgtZjk3MzY5ZWFiODc3&amp;client_info=1&amp;x-client-brkrver=IDWeb.3.5.0.0&amp;state=CfDJ8JQNNX9ZwjlIuX4z31fJdqaEfxjHgJXw4nYSdwPn0gydz7N0JUK2x0dsmxCEmAar7WxZubj8TB5CdRRo-EgwnTEwIowavS76Stjp-C-2t-RtJEqZ8F6PM7BhqoF7bZa-dQaBlFnko8OMi5LleRbSXqIqriux57fBc9C6TUhCu_SZ0JgZPUYQYpnGm38GRIEVaD4sQPY-cYdrPVO6qjh4pvjgBaEJ2-pnZNADudx8jP8J5Ym0zK8r8OKvTrpJlwhxm9AV2TRYpd8yiT60GK-X5LEdSGMf164kWKYwvC-YFSK79GDxQWVA_lMnE7CU_vo66zmiQJrVzydWLs8NoAIncHOu1cxAwZLDQp6uk77V2al4t-jqPas3W6XVDVrA3yw5SGX2rH8Dy_CJ8K1SCzCKZMSZKe07vsF-P6AQr_B_jLo6bCQJXvJ1x7adFm9yKFHbjA&amp;x-client-SKU=ID_NET8_0&amp;x-client-ver=8.3.0.0&amp;sso_reload=true">
+                                <span class=" default-font">
+                                    <i class="fas fa-school"></i>
+                                    الدخول لمنصه مدرستى
+                                </span>
+                            </a>
+                        </li>
+                    <li>
+                        <a class="item open_setting">
+                            <span class=" default-font">
+                                <i class="fas fa-cog ">
+                                </i>
+                                 تخصيص واجهة المستخدم
+                            </span>
+                        </a>
+                    </li>
+                        <li>
+
+                            <a class="item " href="/common/Account/ChangePassword">
+                                <span class=" default-font">
+                                    <i class="fas fa-lock">
+                                    </i>
+                                    تغيير كلمة المرور
+                                </span>
+                            </a>
+
+                        </li>
+                    <li>
+                            <a class="item" href="/common/Account/ChangeTheme?Theme=darsnew-1">
+                                <span class=" default-font">
+                                    <i class="fas fa-th fa-menu-item text-theme "></i>
+
+                                    الشكل الجديد لدرس
+                                </span>
+                            </a>
+                    </li>
+                    <li class="text-center">
+                            
+
+
+                    </li>
+                    <li>
+                        <div class="item text-center d-block p-2">
+                            <button class="btn   btn-theme mx-2   btn-60 " onclick="changeUILanguage(1)">
+                                <span style="vertical-align: text-top;">ع</span>
+                            </button>
+                            <button class="btn btn-secondary   btn-60 " onclick="changeUILanguage(2)">
+                                <span style="vertical-align: -webkit-baseline-middle;">E</span>
+                            </button>
+                        </div>
+                    </li>
+                    <li>
+                        <div class="text-center p-2">
+                            <a class="btn btn-danger text-white" onclick="return confirm('هل تريد بالتأكيد الخروج من النظام؟');" href="/Common/Account/Logout"><i class="fa fa-sign-out-alt"></i> خروج</a>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        <div>
+            <aside class="open_lists cmd" title="خروج">
+                <a href="/Common/Account/Logout" onclick="return confirm('هل تريد بالتأكيد الخروج من النظام؟');">   <i class=" fa fa-sign-out-alt log-out-icon-color  header-icon"></i></a>
+            </aside>
+        </div>
+    </div>
+</div>
+<div class="setting_fixed">
+    <div class="notfication-wrapper">
+        <div class="default-font">
+             تخصيص واجهة المستخدم
+        </div>
+    </div>
+    <ul>
+        <li>
+            <a href="/Common/Account/ChangeTheme?Theme=blue"><div class="theme theme-blue"></div></a>
+<a href="/Common/Account/ChangeTheme?Theme=red"><div class="theme theme-red"></div></a>
+<a href="/Common/Account/ChangeTheme?Theme=green"><div class="theme theme-green"></div></a>
+<a href="/Common/Account/ChangeTheme?Theme=gray"><div class="theme theme-gray"></div></a>
+<a href="/Common/Account/ChangeTheme?Theme=pink"><div class="theme theme-pink"></div></a>
+
+        </li>
+    </ul>
+    <button class="close_setting"><i class="far fa-times-circle"></i></button>
+</div>
+                            </header>
+                        </div>
+                        <div class="col-sm-12 rtl no-print">
+                            <div class=" sitemap-wrapper">
+                                <i class="fa fa-check-circle sitemap-icon"></i> قائمة الواجبات
+                            </div>
+                        </div>
+                        <div class="col-sm-12">
+                            <div class="content-wrapper">
+                                <div class="content smooth-trans rtl">
+    <div class="list-cmd-wrapper">
+        <button type="button" class="btn btn-info btn-circle" onclick="homeWork.onShowSubjectFilter()"><i class="fas fa-filter"></i></button>
+        <button type="button" class="btn btn-warning btn-circle" onclick="window.location.reload()"><i class="fas fa-redo"> </i></button>
+    </div>
+    <div class="row">
+        <div class="col-md-4 text-center" onclick="homeWork.fillter('done')">
+            <div class="widget border-0 widget-sm text-center">
+                <div>
+                    <i class="fad fa-check-circle fa-4x text-success"></i>
+                </div>
+                <div class="mt-3">
+                    <span class="text-success widget-digit">0</span>
+                </div>
+                <div>
+                    <span class="text-muted">تم التسليم</span>
+                </div>
+            </div>
+
+        </div>
+        <div class="col-md-4 text-center" onclick="homeWork.fillter('waiting')">
+            <div class="widget border-0 widget-sm text-center">
+                <div>
+                    <i class="fad fa-hourglass-half fa-4x text-warning"></i>
+                </div>
+                <div class="mt-3">
+                    <span class="text-warning widget-digit">0</span>
+                </div>
+                <div>
+                    <span class="text-muted">قيد التسليم</span>
+                </div>
+            </div>
+
+        </div>
+        <div class="col-md-4 text-center" onclick="homeWork.fillter('expired')">
+            <div class="widget border-0 widget-sm text-center">
+                <div>
+                    <i class="fad fa-ban fa-4x text-danger"></i>
+                </div>
+                <div class="mt-3">
+                    <span class="text-danger widget-digit">0</span>
+                </div>
+                <div>
+                    <span class="text-muted">غير مستلم </span>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    <div id="quizListContainer">
+        <div class="row">
+        <div class="col-12">
+            <div class="p-5 text-center  panel-sub-title my-2">
+                <span class="text-secondary"> لا يوجد واجبات او اختبارات </span>
+            </div>
+        </div>
+</div>
+
+    </div>
+</div>
+<div class="modal fade" id="SubjectFilterModal" role="dialog" aria-hidden="true" data-backdrop="true" data-keyboard="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header msgbox-header">
+                <h5 class="modal-title local-font">
+                    بحث
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" style="margin-left:0px">×</button>
+            </div>
+            <div class="modal-body" id="SubjectFilterBody">
+                
+            </div>
+        </div>
+    </div>
+</div>
+<div id="subjectFilter" class="d-none">
+    <div class="row">
+        <div class="col-md-12">
+            <form id="searchStudentHomework" onsubmit="homeWork.getStudentQuizList(this,event,homeWork.quizType.homework)">
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <label>اسم المادة</label>
+                        <select class="form-control form-control-sm default-font " id="SubjectID" name="SubjectID"><option value="">جميع المواد</option>
+<option value="251">IELTS</option>
+<option value="338">معرفة مالية</option>
+<option value="401">STEP</option>
+<option value="238">تربية صحية وبدنية 1ث</option>
+<option value="233">اجتماعيات ث</option>
+<option value="153">فيزياء ث 1</option>
+<option value="184">تربية المهنية ث</option>
+<option value="200">كفايات 1-2 ث</option>
+<option value="225">القدرات - لفظي</option>
+<option value="224">القدرات - كمي</option>
+<option value="321">E1-2</option>
+<option value="194">رياضيات 1-2</option>
+<option value="283">تقنية رقمية 1-2</option>
+<option value="288">حديث مسارات</option>
+<option value="290">علم بيئة </option>
+</select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="col-md-12 text-center">
+                        <button class="btn btn-sm btn-info"><i class="fas fa-search"></i> بحث</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+                            </div>
+                        </div>
+                        <div class="col-sm-12 no-print">
+                            <footer class="footer-wrapper footer-fixed text-center">
+                                <div class="row">
+    <div class="col-10">
+        جميع الحقوق محفوظة - الإصدار 3.80
+    </div>
+    
+  
+
+    <div class="col-2 p-0 m-0">
+        <div class="shortcut-icon d-inline-block text-center cmd shortcut-menu-btn-container btn-theme" onclick="shortcutMenu.onShowShortcutMenu();">
+            <i class="fab fa-windows  fa-lg show-menu-icon mx-2  mt-1"></i>
+        </div>
+        <div class="shortcut-icon d-inline-block text-center cmd shortcut-menu-btn-container btn-theme" id="openChatBot">
+            <i class="fab fa-rocketchat  fa-lg show-menu-icon mx-2  mt-1"></i>
+        </div>
+    </div>
+
+</div>
+
+<div id="frequentlyAskedQuestions" hidden="hidden"></div>
+                            </footer>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="shotcutMenu" class="shortcut-context-menu d-none rtl">
+        <div class="py-1 shortcut-link">
+        <a href="/VirtualClassTimeTable/ClassTimeTable/Student"><i class="fas fa-bars text-theme mx-2"></i> <span class="text-theme mx-2">  ‏الحصص  Live </span></a>
+    </div>
+    <div class="py-1 shortcut-link">
+        <a href="/Homework/Homework/StudentHomework"><i class="fas fa-bars text-theme mx-2"></i> <span class="text-theme mx-2">  ‏الواجبات  ‏من الأساتذة بس واجبات </span></a>
+    </div>
+    <div class="py-1 shortcut-link">
+        <a href="/Homework/Homework/StudentHomework"><i class="fas fa-bars text-theme mx-2"></i> <span class="text-theme mx-2">  ‏الواجبات  ‏من الأساتذة بس واجبات </span></a>
+    </div>
+    <div class="py-1 shortcut-link">
+        <a href="/DailyPost/student/SubjectPost"><i class="fas fa-bars text-theme mx-2"></i> <span class="text-theme mx-2">  ‏منشورات </span></a>
+    </div>
+    <div class="py-1 shortcut-link">
+        <a href="/DailyPost/student/SubjectPost"><i class="fas fa-bars text-theme mx-2"></i> <span class="text-theme mx-2">  ‏منشورات </span></a>
+    </div>
+    <div class="py-1 shortcut-link">
+        <a href="/Exams/Exams/StudentExams"><i class="fas fa-bars text-theme mx-2"></i> <span class="text-theme mx-2"> الاختبارات</span></a>
+    </div>
+<div class="py-1 shortcut-link">
+    <a href="javascript:void(0)" onclick="shortcutMenu.onShowAddMenu()"><i class="fa fa-plus text-theme mx-2 "></i> <span class="text-theme mx-2">اضافة اختصار جديد</span></a>
+</div>
+</div>
+<div class="modal fade" id="ShortcutMenuModal" role="dialog" aria-hidden="true" data-backdrop="true" data-keyboard="true">
+    <div class="modal-dialog modal-dialog-centered modal-md">
+        <div class="modal-content">
+            <div class="modal-header msgbox-header">
+                <h5 class="modal-title local-font">
+                    اضافة اختصار جديد
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" style="margin-left:0px">×</button>
+            </div>
+            <div class="modal-body" id="ShortcutMenuBody">
+                
+            </div>
+        </div>
+    </div>
+</div>
+        <a href="#" id="scrollTop" class="no-print scroll-top ">
+        </a>
+    </div>
+    <div id="modalconfirmation" class="modal-confirmation">
+        <form class="modal-content" action="/action_page.php">
+            <div class="container">
+                <p class="my-4 text-center" id="confirm-p">هل تريد بالتأكيد اجراء هذه العملية  ( العمليات )؟</p>
+                <div class="cmd-wrapper">
+                    <button type="button" id="confirmNo" class="btn btn-orange">الغاء</button>
+                    <button type="button" id="confirmYes" class="btn btn-success my-1">موافق</button>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+<script src="/lib/jquery-validation/dist/jquery.validate.min.js?v=80"></script>
+<script src="/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.js?v=80"></script>
+<script src="/lib/jquery-ui/js/jquery-ui-1.12.1.min.js?v=80"></script>
+<script src="/Module/OnlineQuiz/jquery.ui.touch-punch.min.js?v=80"></script>
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/timepicker/1.3.5/jquery.timepicker.min.js?v=80"></script>
+<script src="/web/js/popper.min.js?v=80"></script>
+
+<script src="/lib/bootstrap.4.3.rtl/js/bootstrap.min.js?v=80"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/moment.min.js?v=80"></script> <!--Format Dates-->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.24.0/locale/ar-sa.js?v=80" type="text/javascript"></script>
+<script type="text/javascript">
+    //There is a conflict between jquery data table semantic ui style and bootstrap modal
+    //in order to resolve conflict you must write the following line before loading semantic scripts
+    $.fn.bsModal = $.fn.modal.noConflict();
+    //after that you can call bootstrap modal function .bsModal instead of modal
+</script>
+
+<script src="https://cdn.datatables.net/1.10.19/js/jquery.dataTables.min.js?v=80"></script>
+<script src="https://cdn.datatables.net/1.10.19/js/dataTables.semanticui.min.js?v=80"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.3.1/semantic.min.js?v=80"></script>
+
+<script src="https://cdn.datatables.net/buttons/1.5.6/js/dataTables.buttons.min.js?v=80"></script>
+<script src="https://cdn.datatables.net/buttons/1.5.6/js/buttons.flash.min.js?v=80"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js?v=80"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/pdfmake.min.js?v=80"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.53/vfs_fonts.js?v=80"></script>
+<script src="https://cdn.datatables.net/buttons/1.5.6/js/buttons.html5.min.js?v=80"></script>
+<script src="https://cdn.datatables.net/buttons/1.5.6/js/buttons.print.min.js?v=80"></script>
+
+<script src="/lib/toastr/js/toastr.min.js?v=80"></script>
+<script src="/lib/counterup/counterup.js?v=80"></script>
+
+
+<script src="/lib/ckeditor/ckeditor.js?v=80"></script>
+<script src="/lib/ckeditor/adapters/jquery.js?v=80"></script>
+
+
+<script src="/lib/fileinput/js/fileinput.js?v=80" type="text/javascript"></script>
+
+<script src="/lib/metismenu/js/metismenujs.min.js?v=80"></script>
+
+<script src="/lib/select2/js/select2.min.js?v=80" type="text/javascript"></script>
+
+<script src="/lib/Chart.js/Chart.min.js?v=80" type="text/javascript"></script>
+<script src="/lib/Chart.js/Chart.build.js?v=80" type="text/javascript"></script>
+
+<script src="/lib/jstree/js/jstree.min.js?v=80"></script>
+
+
+<script src="https://cdn.webrtc-experiment.com/RecordRTC.js"></script>
+<script src="https://unpkg.com/@mattiasbuelens/web-streams-polyfill/dist/polyfill.min.js"></script>
+<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+<script src="https://www.webrtc-experiment.com/DetectRTC.js"></script>
+<script src="https://www.webrtc-experiment.com/getHTMLMediaElement.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui@5.0/dist/fancybox/fancybox.umd.js"></script>
+<script src="/module/admin/login.js?v=80"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+
+<script src="/lib/signalr/dist/browser/signalr.min.js?v=80"></script>
+<script>
+
+    // var swiper = new Swiper(".mySwiper", {
+    //        direction: "vertical",
+    //        slidesPerView: 2,
+    //        loop: true,
+    //        spaceBetween: 5,
+    //        autoplay: {
+    //            delay: 2000,
+    //        },
+    //        pagination: {
+    //            el: ".swiper-pagination",
+    //            clickable: true,
+    //        },
+    //    });
+    //      var swiper = new Swiper(".mySwiperVedios", {
+    //    spaceBetween: 10,
+    //    pagination: {
+    //        el: ".swiper-pagination",
+    //        clickable: true,
+    //    },
+    //    breakpoints: {
+    //        740: {
+    //            slidesPerView: 2,
+    //        },
+    //        1024: {
+    //            slidesPerView: 3,
+    //        },
+    //    },
+    //    navigation: {
+    //        nextEl: ".swiper-button-next",
+    //        prevEl: ".swiper-button-prev",
+    //    },
+    //});
+
+    //var swiper = new Swiper(".mySwiperaudio", {
+    //    spaceBetween: 10,
+    //    pagination: {
+    //        el: ".swiper-pagination",
+    //        clickable: true,
+    //    },
+    //    breakpoints: {
+    //        740: {
+    //            slidesPerView: 2,
+    //        },
+    //        1024: {
+    //            slidesPerView: 3,
+    //        },
+    //    },
+    //    navigation: {
+    //        nextEl: ".swiper-button-next",
+    //        prevEl: ".swiper-button-prev",
+    //    },
+    //});
+    $(function () {
+        $('#spinner').hide();
+        //build side menu
+        new MetisMenu('#SideMenu');
+        //build Burger menu
+        new MetisMenu('#BurgerMenu');
+
+        //Issue REF:https://github.com/onokumus/metismenu/issues/41
+        //get menu node that matches current navigation ref
+        var current = $('#SideMenu a[href="' + window.location.pathname + '" i]'); //i Means Ignore Case
+        //if not found , then check releted href
+        if (current.length == 0) {
+            current = $('#SideMenu a[rel-href*="' + window.location.pathname + '" i]');//i Means Ignore Case
+        }
+        //expand node
+        $(current)
+            .parents('ul')
+            .attr('aria-expanded', true)
+            .addClass('collapse' + ' ' + 'collapse in');
+
+        $(current)
+            .parents('li')
+            .attr('aria-expanded', true)
+            .addClass('active');
+
+        //set item background color
+        if (current.is(':visible')) {
+            $(current).addClass("current-node");
+        }
+
+        //set parent node background color
+        $('.metismenu li.active a').first().addClass("current-parent-node");
+
+        $("#maindiv").removeClass("d-none");
+        $('#spinner').hide();
+    });
+    spinner.enabled = true;
+    $('#spinner').show();
+    var unMinify = sessionStorage.getItem("UnMinify");
+    $(".btn_terminal").addClass(unMinify);
+    if ($(".btn_terminal").hasClass("active2")) {
+        $(".terminalicon").addClass("d-none");
+        $(".arrowicon").removeClass("d-none");
+        $(".side-menu-wrapper").addClass("active2");
+        $(".side-menu-wrapper").removeClass("active1");
+        $(".page-wrapper").addClass("active2");
+        $(".header-fixed").addClass("active2");
+        $(".switch > input[type='checkbox']").prop("checked", true);
+        $("#maindiv").removeClass("d-none");
+        $('#spinner').hide();
+        $(".menuitems").each(function (e) {
+            $(this).removeClass("in");
+        });
+        $(".today-wrapperDate").addClass("d-none");
+
+    } else {
+        $(".terminalicon").removeClass("d-none");
+        $(".arrowicon").addClass("d-none");
+        $(".side-menu-wrapper").removeClass("active2");
+        $(".page-wrapper").removeClass("active2");
+        $(".header-fixed").removeClass("active2");
+        $(".switch > input[type='checkbox']").prop("checked", false);
+        $(".today-wrapperDate").removeClass("d-none");
+    }
+</script>
+
+
+<script>
+    //Display Modal MessageBox if Existing
+    $(document).ready(function () {
+        if ($('#MessageBox').length) {
+            //it should be modal but because of conflict between datatable symantic UI and bootstrap modal conflict
+            $('#MessageBox').bsModal({ keyboard: true });
+        }
+    });
+</script>
+
+<script>
+
+    $(document).ready(function ($) {
+      
+        if ($(".btn_terminal").hasClass("active2")) {
+            $(".menuitems").each(function (e) {
+                $(this).removeClass("in");
+            });
+        }
+        if ($(this).scrollTop() > 100) {
+            $('#scrollTop').fadeIn('slow');
+        }
+        $(window).scroll(function () {
+            if ($(this).scrollTop() > 100) {
+                $('#scrollTop').fadeIn('slow');
+            } else {
+                $('#scrollTop').fadeOut('slow');
+            }
+        });
+        $('#scrollTop').click(function () {
+            $("html, body").animate({ scrollTop: 0 }, 1000);
+            return false;
+        });
+    });
+</script>
+
+<script>
+    if ('True' == "True")
+        $('.ckeditor').ckeditor({ language: 'ar' });
+    else
+        $('.ckeditor').ckeditor({ language: 'en' });
+    var selectedIDs = new Array();
+    var overrideDrawCallback = false;
+    function initDataTable(name, listUrl, editUrl, deleteUrl, deleteRangeUrl, columns, order, orderDir, pagenate = true, enterToSearch = false, yScroll = false) {
+        try {
+            //prepare data table
+            dataTable.table = $("#" + name + "").DataTable(
+                {
+                    "scrollY": yScroll ? "400px" : "",
+                    "scrollCollapse": yScroll,
+                    "bPaginate": pagenate,
+                    "responsive": true,
+                    "bLengthChange": pagenate,
+                    "lengthMenu": [[2, 5, 10, 25, 50, 100, 2147483647], [2, 5, 10, 25, 50, 100, "الكل"]], //page size options
+                    //scrollY: 200,//scroll and fix headers
+                    "serverSide": "true",
+                    "process`ing": "true",
+                    "language": {
+                        "sProcessing": '<i class="fa fa-spinner fa-spin fa-2x fa-fw loading"></i>',//"جارٍ التحميل..."
+                        "sLengthMenu": "عرض _MENU_ سجلات",
+                        "sZeroRecords": "لم يتم العثور على أي سجلات",
+                        "sInfo": "عرض _START_ إلى _END_ من أصل _TOTAL_ سجل (سجلات)",
+                        "sInfoEmpty": "عرض 0 إلى 0 من أصل 0 سجل",
+                        "sInfoFiltered": "(منتقاة من مجموع _MAX_ مُدخل)",
+                "sSearch": "ابحث",
+                "sUrl": "sUrl",
+                "oPaginate": {
+                "sFirst": "الأول",
+                "sPrevious": "السابق",
+                "sNext": "التالي",
+                "sLast": "الأخير"
+            }
+                                                },
+        "ajax":
+        {
+            "url": listUrl,
+                "type": "POST",
+                    "datatype": "json",
+                        error: function (xhr, error, code) {
+                            if (xhr.status == 401) {
+                                window.location.href = "/common/account/login";
+                            }
+                            else if (xhr.status == 500) {
+                                console.log('Server Error');
+                            }
+                            else {
+                                console.log(xhr);
+                                console.log(error);
+                            }
+                        }
+        },
+        "drawCallback": function (settings) {
+            if (!overrideDrawCallback) {
+                //clear selection
+                selectedIDs = new Array();
+                //clear check status
+                toggleCheckAll();
+            }
+        },
+        "columns": columns,
+            "order": [order, orderDir],
+                initComplete: function () {
+                    //show filter panel
+                    $(".dataTables_filter").css("visibility", "visible");
+
+                    //Enable Enter to start seacrh feature
+                    if (enterToSearch) {
+                        $('#list_filter input').unbind();
+                        $('#list_filter input').bind('keyup', function (e) {
+                            if (e.keyCode == 13) {
+                                table.search(this.value).draw();
+                            }
+                        });
+                    }
+                },
+        dom: 'lBfrtip',
+            //"dom": '<"top"Bf>rt<"bottom"lip><"clear">',
+            // buttons: ['copy', 'csv', 'excel', 'pdf', 'print'],
+            buttons:
+        [
+            {
+                extend: 'excelHtml5',
+                exportOptions: {
+                    columns: ':not(.not-exportable)'
+                }
+            }
+        ]
+    });
+
+    $("#" + name + "").show();
+    //Delete Record
+    async function deleteRecord(ID) {
+        debugger;
+        // the @ syntax automatically HTML encodes and the solution is to use the Raw extension-method
+        const confirmd = await ui.confirm('Are you sure you want to do this?');
+        if (confirmd) {
+            var obj = { Value: ID };
+            $.ajax({
+                type: "POST",
+                url: deleteUrl,//action url
+                data: obj, //action params
+                success: function (result) {
+                    if (String(result.status) === EXResultStatus.Fail) {
+                        alert(result.message);
+                    }
+                    else {
+                        refreshDataTable();
+                    }
+                },
+                error: function (result, xhr, status, error) {
+
+                    alert("Result: " + status + " " + error + " " + xhr.status + " " + xhr.statusText);
+                }
+            });
+        }
+    }
+    //delete mutli record
+    async function deleteMultiRecord() {
+        selectedIDs;
+        const confirmd = await ui.confirm('Are you sure you want to do this?');
+        if (confirmd) {
+            var items = new Array();
+            selectedIDs.forEach(function (arrayItem) {
+                var obj = { Value: arrayItem };
+                items.push(obj);
+            });
+
+            $.ajax({
+                type: "POST",
+                url: deleteRangeUrl,//action url
+                data: JSON.stringify(items), //action params
+                contentType: "application/json; charset=utf-8",
+                success: function (result) {
+                    if (result.status == EXResultStatus.Fail) {
+                        alert(result.message);
+                    }
+                    else {
+                        refreshDataTable();
+                    }
+                },
+                error: function (xhr, status, error) {
+                    alert("Result: " + status + " " + error + " " + xhr.status + " " + xhr.statusText);
+                }
+            });
+        }
+    }
+    //Refresh Data Table
+    function refreshDataTable() {
+        $("#" + name + "").DataTable().ajax.reload(null, false);
+    }
+
+    //Single Click > Selected
+    $('#' + name + ' tbody').on('click', 'tr', function () {
+        //if item selected then deselect it ,if item not selected then select it
+        toggleItemCheck(this);
+    });
+
+    //Double Click > Edit
+    if (editUrl != '') {
+        //double click to edit
+        $('#' + name + ' tbody').on('dblclick', 'tr', function () {
+            var id = $(this).find("i.checker").attr("id");
+            window.location = editUrl + "?id=" + id;
+        });
+    }
+
+    //check one item
+    function toggleItemCheck(row) {
+        var item = $(row).find(".checker");
+        //switch check class
+        //item.toggleClass("checkbox-checked");
+        //get clicked item id
+        var id = item.attr("id");
+
+        //if item existing in list then remove it
+        if (selectedIDs.indexOf(id) != -1) {
+            uncheckOneItem(row);
+        }
+        else {
+            //add item to selected items list
+            checkOneItem(row);
+        }
+    }
+
+    function checkOneItem(row) {
+        var item = $(row).find(".checker");
+        //switch check class
+        item.addClass("checkbox-checked");
+
+        //get clicked item id
+        var id = item.attr("id");
+        //if item not existing in list then add it
+        if (selectedIDs.indexOf(id) == -1) {
+            selectedIDs.push(id);
+        }
+        toggleCheckAll();
+    }
+
+    function uncheckOneItem(row) {
+        var item = $(row).find(".checker");
+        //switch check class
+        item.removeClass("checkbox-checked");
+        //get clicked item id
+        var id = item.attr("id");
+        //if item not existing in list then remove it
+        if (selectedIDs.indexOf(id) != -1) {
+            selectedIDs.splice(selectedIDs.indexOf(id), 1);
+        }
+        toggleCheckAll();
+    }
+    //check all items
+    function checkAll() {
+        var rowscount = $('#' + name + '> tbody > tr').length;
+        //if all items not checked
+        if (selectedIDs.length != rowscount) {
+            $('#' + name + '> tbody > tr').each(function (index) {
+                checkOneItem(this);
+            });
+        }
+        //uncheck all
+        else {
+            $('#' + name + '> tbody > tr').each(function (index) {
+                uncheckOneItem(this);
+            });
+        }
+    }
+    function toggleCheckAll() {
+        var rowscount = $('#' + name + '> tbody > tr').length;
+        if (selectedIDs.length == rowscount) {
+            $('.allchecker').addClass('checkbox-checked');
+        }
+        else {
+            $('.allchecker').removeClass('checkbox-checked');
+        }
+    }
+    //make the function available in the global scope
+    window.deleteRecord = deleteRecord;
+    window.deleteMultiRecord = deleteMultiRecord;
+    window.refreshDataTable = refreshDataTable;
+    window.checkOneItem = checkOneItem;
+    window.checkAll = checkAll;
+    window.toggleCheckAll = toggleCheckAll;
+                                    }
+                                    catch (e) {
+        console.log(e);
+    }
+
+                                    }
+
+    // # chat bot start
+    $(document).on("click", "#openChatBot", function (e) {
+        e.preventDefault();
+        $(this).toggleClass("active");
+        if ($(this).hasClass("active")) {
+            $("#frequentlyAskedQuestions").removeAttr("hidden");
+            if ($("#frequentlyAskedQuestions").html().length == 0) {
+                $.ajax({
+                    url: "/TechnicalSupport/ChatBotModule/GetChatBotModulesIncludingQuestions",
+                    contentType: 'application/html ; charset:utf-8',
+                    type: 'GET',
+                    dataType: 'html',
+                    success: function (data) {
+                        $("#frequentlyAskedQuestions").html(data);
+                    },
+                    error: function () {
+                        $("#frequentlyAskedQuestions").empty();
+                    }
+                });
+            }
+        } else {
+            $("#frequentlyAskedQuestions").attr("hidden", "hidden");
+        }
+    });
+
+    $(document).on("click", ".closeChat", function (e) {
+        e.preventDefault();
+        $("#frequentlyAskedQuestions").attr("hidden", "hidden");
+    });
+    // # chat bot end
+</script>
+
+<script>
+    $(".select2").select2({
+        dir: "rtl"
+    });
+</script>
+<script>
+    idle.isEnabled = true;
+</script>
+<script src="/Module/ShortcutMenu/ShortcutMenu.js?v=80"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.9.0/dropzone.js"></script>
+
+    
+    <script src="/Module/OnlineQuiz/HomeWork.js?v=80"></script>
+    <script>
+        $(document).ready(function () {
+            homeWork.dbResource.UnableToSeeModalAnswerMSG = '   لا يمكن الاطلاع على نموذج الإجابة في الوقت الحالي';
+        });
+    </script>
+
+    <div class="modal fade" id="CKAudioModal" role="dialog" aria-hidden="true" data-backdrop="true" data-keyboard="true">
+    <div class="modal-dialog modal-dialog-centered modal-md">
+        <div class="modal-content">
+            <div class="modal-header msgbox-header">
+                <h5 class="modal-title local-font">
+                    إضافة ملف صوتي
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" style="margin-left:0px">×</button>
+            </div>
+            <div class="modal-body" id="CKAudioContent">
+                
+            </div>
+        </div>
+    </div>
+</div>
+    <div class="modal fade" id="CKImageModal" role="dialog" aria-hidden="true" data-backdrop="true" data-keyboard="true">
+    <div class="modal-dialog modal-dialog-centered modal-md">
+        <div class="modal-content">
+            <div class="modal-header msgbox-header">
+                <h5 class="modal-title local-font">
+                    إضافة صورة
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" style="margin-left:0px">×</button>
+            </div>
+            <div class="modal-body" id="CKImageContent">
+                
+            </div>
+        </div>
+    </div>
+</div>
+<script defer="" src="https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496" integrity="sha512-ZE9pZaUXND66v380QUtch/5sE9tPFh2zg45pR2PB0CVkCtOREv2AJKkSidISWkysEuQ0EH8faUU5du78bx87UQ==" data-cf-beacon="{&quot;version&quot;:&quot;2024.11.0&quot;,&quot;token&quot;:&quot;38a4a7dd354e45dbaf6ebc5e1260f1db&quot;,&quot;r&quot;:1,&quot;server_timing&quot;:{&quot;name&quot;:{&quot;cfCacheStatus&quot;:true,&quot;cfEdge&quot;:true,&quot;cfExtPri&quot;:true,&quot;cfL4&quot;:true,&quot;cfOrigin&quot;:true,&quot;cfSpeedBrain&quot;:true},&quot;location_startswith&quot;:null}}" crossorigin="anonymous"></script>
+
+</body></html>

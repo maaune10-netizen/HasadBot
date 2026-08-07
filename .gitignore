@@ -1,0 +1,110 @@
+# ==============================================================================
+# HASAD Bot - Git Ignore
+# ==============================================================================
+# 🚨 ملفات حساسة - لا ترفعها على git أبداً
+# ==============================================================================
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+# استثناء: القوالب documentation مسموح بها
+!.env.example
+!.env.dashboard.example
+
+# ==============================================================================
+# Python
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.eggs/
+build/
+develop-eggs/
+dist/
+downloads/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.spec
+.installed.cfg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.coverage.xml
+*.cover
+.hypothesis/
+
+# IDEs & Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==============================================================================
+# Logs and data
+# ==============================================================================
+# مجلدات اللوج والبيانات (خارج المشروع)
+logs/
+*.log
+*.log.*
+
+# قواعد بيانات محلية
+*.db
+*.sqlite
+*.sqlite3
+hasad_knowledge_base123.db
+
+# Knowledge base (صور، ملفات)
+knowledge_db/images/
+knowledge_db/storage/
+knowledge_db/admin_debug_images/
+
+# ==============================================================================
+# OS files
+# ==============================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ==============================================================================
+# Project-specific
+# ==============================================================================
+# ملفات الـ admin logs الحساسة
+admin_logs/
+dashboard_audit.log
+login_attempts.log
+
+# Dashboard password (saved separately, not in .env)
+.dashboard_password
+.env.bak
+
+# Runtime artifacts
+/l
+stats_*.json
+

@@ -1,0 +1,2304 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+HASAD Bot - Super Admin Dashboard
+لوحة تحكم احترافية متجاوبة مع جميع الأجهزة
+نسخة مؤمنة: JWT + bcrypt + Rate Limiting + IP Whitelist
+"""
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import os
+import asyncio
+import time
+import json
+import secrets
+import socket
+from typing import List, Dict, Optional
+
+import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
+
+from hasad_bot.datetime_utils import datetime, now
+from typing import List, Dict
+from hasad_bot.ai_engine import stats as ai_stats, active_sessions
+from hasad_bot.config import config
+from hasad_bot.database import _db_pool, db_get_user, db_all_users
+from hasad_bot.utils import decrypt_password, now_hijri, admin_trace
+
+# نظام المصادقة الجديد
+from hasad_bot.web_dashboard_auth import (
+    get_auth_manager,
+    require_auth,
+    validate_dashboard_security,
+    COOKIE_NAME,
+    PasswordManager,
+    JWTManager,
+    RateLimiter,
+    AuditLogger,
+    IPWhitelist,
+    AuthManager,
+)
+
+
+# ==============================================================================
+# إعدادات التطبيق والمصادقة (مؤمنة)
+# ==============================================================================
+
+app = FastAPI(title="HASAD Bot Super Admin Panel")
+
+# التحقق من الإعدادات قبل البدء (fail-fast)
+_is_valid, _warnings = validate_dashboard_security()
+if not _is_valid:
+    print("\n" + "=" * 60)
+    print("❌ CRITICAL: Dashboard security not configured!")
+    print("=" * 60)
+    for w in _warnings:
+        print(f"  {w}")
+    print("=" * 60)
+    print("🛑 البوت لن يعمل حتى يتم إصلاح هذه الأخطاء!")
+    print("💡 شغّل: python generate_dashboard_password.py")
+    print("=" * 60 + "\n")
+    sys.exit(1)
+
+# تهيئة Auth Manager
+auth_manager = get_auth_manager()
+
+
+class LoginData(BaseModel):
+    username: str
+    password: str
+
+
+# ==============================================================================
+# Middleware (مؤمن - JWT-based بدلاً من referer)
+# ==============================================================================
+
+PUBLIC_PATHS = {"/", "/api/login", "/docs", "/openapi.json", "/redoc", "/favicon.ico"}
+PUBLIC_PREFIXES = ("/static/",)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Middleware محصن - يتحقق من JWT cookie على كل request"""
+    path = request.url.path
+
+    # السماح بالمسارات العامة
+    if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
+        return await call_next(request)
+
+    # WebSocket له معالج خاص
+    if path == "/ws":
+        return await call_next(request)
+
+    # Webhook endpoints (إذا وُجدت)
+    if path.startswith("/webhook/"):
+        return await call_next(request)
+
+    # التحقق من JWT cookie
+    payload = await auth_manager.verify_session(request)
+    if not payload:
+        # إذا كان API، نرجع JSON
+        if path.startswith("/api/"):
+            return JSONResponse(
+                {"error": "غير مصرح - يرجى تسجيل الدخول", "redirect": "/"},
+                status_code=401
+            )
+        # إذا كان صفحة، نعمل redirect
+        return RedirectResponse(url="/", status_code=303)
+
+    # إضافة payload للـ request state
+    request.state.user = payload.get("sub")
+    return await call_next(request)
+
+
+# ==============================================================================
+# قالب تسجيل الدخول
+# ==============================================================================
+
+LOGIN_PAGE = """
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HASAD Bot - تسجيل الدخول</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{min-height:100vh;background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#0f172a 100%);display:flex;justify-content:center;align-items:center;padding:16px;font-family:'Segoe UI',Tahoma,sans-serif;overflow:hidden}
+        body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(circle at 30% 50%,rgba(59,130,246,0.08) 0%,transparent 50%),radial-gradient(circle at 70% 50%,rgba(168,85,247,0.06) 0%,transparent 50%);animation:float 20s ease-in-out infinite}
+        @keyframes float{0%,100%{transform:translate(0,0)}50%{transform:translate(-2%,2%)}}
+        .login-container{width:100%;max-width:420px;position:relative;z-index:1}
+        .login-card{background:rgba(255,255,255,0.97);border-radius:24px;box-shadow:0 25px 60px rgba(0,0,0,0.4),0 0 0 1px rgba(255,255,255,0.1);overflow:hidden;backdrop-filter:blur(20px)}
+        .login-header{background:linear-gradient(135deg,#1e3c72,#2a5298);padding:40px 30px 30px;text-align:center;color:white;position:relative}
+        .login-header::after{content:'';position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);width:40px;height:40px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 15px rgba(0,0,0,0.1)}
+        .login-header h1{font-size:2em;margin-bottom:6px;text-shadow:0 2px 10px rgba(0,0,0,0.2)}
+        .login-header p{opacity:0.85;font-size:0.95em}
+        .login-body{padding:40px 30px 30px}
+        .input-group{margin-bottom:22px}
+        .input-group label{display:block;margin-bottom:8px;color:#374151;font-weight:600;font-size:0.9em}
+        .input-group input{width:100%;padding:14px 16px;border:2px solid #e5e7eb;border-radius:14px;font-size:1em;background:#f9fafb;transition:all 0.3s}
+        .input-group input:focus{outline:none;border-color:#3b82f6;background:white;box-shadow:0 0 0 3px rgba(59,130,246,0.15)}
+        .login-btn{width:100%;padding:15px;background:linear-gradient(135deg,#1e3c72,#3b82f6);border:none;border-radius:14px;color:white;font-size:1.05em;font-weight:bold;cursor:pointer;transition:all 0.3s;box-shadow:0 4px 15px rgba(30,60,114,0.3)}
+        .login-btn:hover{transform:translateY(-2px);box-shadow:0 8px 25px rgba(30,60,114,0.4)}
+        .login-btn:active{transform:translateY(0)}
+        .error-message{background:#fef2f2;color:#dc2626;padding:12px;border-radius:12px;margin-bottom:18px;text-align:center;display:none;font-size:0.9em;border:1px solid #fecaca}
+        .error-message.show{display:block;animation:shake 0.4s}
+        @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+        .footer{text-align:center;padding:18px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:0.8em;color:#9ca3af}
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <h1>🤖 حصاد</h1>
+                <p>لوحة التحكم — HASAD Bot</p>
+            </div>
+            <div class="login-body">
+                <div class="error-message" id="errorMsg">⚠️ اسم المستخدم أو كلمة المرور غير صحيحة</div>
+                <form id="loginForm">
+                    <div class="input-group">
+                        <label>👤 اسم المستخدم</label>
+                        <input type="text" id="username" placeholder="أدخل اسم المستخدم" autocomplete="username">
+                    </div>
+                    <div class="input-group">
+                        <label>🔒 كلمة المرور</label>
+                        <input type="password" id="password" placeholder="أدخل كلمة المرور" autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="login-btn">🚪 تسجيل الدخول</button>
+                </form>
+            </div>
+            <div class="footer">© 2025 HASAD Bot — جميع الحقوق محفوظة</div>
+        </div>
+    </div>
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            if (!username || !password) {
+                document.getElementById('errorMsg').classList.add('show');
+                return;
+            }
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    // ✅ الـ token محفوظ في HttpOnly cookie - لا حاجة لـ localStorage
+                    // (هذا يحمي من XSS attacks)
+                    window.location.href = '/dashboard';
+                } else if (data.rate_limited) {
+                    document.getElementById('errorMsg').textContent = '⏳ ' + (data.message || 'تم تجاوز عدد المحاولات. حاول لاحقاً.');
+                    document.getElementById('errorMsg').classList.add('show');
+                } else {
+                    document.getElementById('errorMsg').textContent = '❌ ' + (data.message || 'اسم المستخدم أو كلمة المرور غير صحيحة');
+                    document.getElementById('errorMsg').classList.add('show');
+                    setTimeout(() => document.getElementById('errorMsg').classList.remove('show'), 3000);
+                }
+            } catch (err) {
+                document.getElementById('errorMsg').textContent = '⚠️ خطأ في الاتصال بالخادم';
+                document.getElementById('errorMsg').classList.add('show');
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+
+# ==============================================================================
+# قالب الداشبورد الرئيسي
+# ==============================================================================
+
+DASHBOARD_PAGE = """
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HASAD Bot — لوحة التحكم</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <style>
+        /* ===== CSS Variables ===== */
+        :root {
+            --primary: #1e3c72;
+            --primary-light: #3b82f6;
+            --primary-dark: #0f172a;
+            --accent: #8b5cf6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #06b6d4;
+            --bg: #f1f5f9;
+            --surface: #ffffff;
+            --surface-hover: #f8fafc;
+            --text: #1e293b;
+            --text-secondary: #64748b;
+            --text-muted: #94a3b8;
+            --border: #e2e8f0;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+            --shadow: 0 4px 12px rgba(0,0,0,0.08);
+            --shadow-lg: 0 10px 30px rgba(0,0,0,0.12);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --transition: 0.25s cubic-bezier(0.4,0,0.2,1);
+        }
+
+        /* ===== Reset & Base ===== */
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Tahoma, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ===== Layout ===== */
+        .app { min-height: 100vh; display: flex; flex-direction: column; }
+        .container { max-width: 1440px; margin: 0 auto; padding: 16px; width: 100%; }
+        @media(min-width:768px) { .container { padding: 24px; } }
+
+        /* ===== Header ===== */
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            margin-bottom: 20px;
+            color: white;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+        }
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .header-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+        .header h1 { font-size: 1.5em; font-weight: 700; }
+        @media(min-width:768px) { .header h1 { font-size: 2em; } }
+        .header-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .header-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.15);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.82em;
+            backdrop-filter: blur(10px);
+            white-space: nowrap;
+        }
+        .header-time { font-size: 0.85em; opacity: 0.85; margin-top: 6px; }
+
+        /* ===== Stats Grid ===== */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        @media(min-width:640px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media(min-width:1024px) { .stats-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; } }
+
+        .stat-card {
+            background: var(--surface);
+            border-radius: var(--radius-sm);
+            padding: 16px;
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition);
+            cursor: pointer;
+            border: 1px solid var(--border);
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            top: 0; right: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--primary-light);
+            opacity: 0;
+            transition: var(--transition);
+        }
+        .stat-card:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+        .stat-card:hover::after { opacity: 1; }
+        .stat-card .title {
+            color: var(--text-secondary);
+            font-size: 0.78em;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: 500;
+        }
+        .stat-card .value {
+            color: var(--primary);
+            font-size: 1.6em;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        @media(min-width:768px) { .stat-card .value { font-size: 2em; } }
+        .stat-card .subtitle { color: var(--success); font-size: 0.78em; margin-top: 4px; font-weight: 500; }
+
+        /* ===== Charts ===== */
+        .charts-row {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        @media(min-width:768px) { .charts-row { grid-template-columns: 2fr 1fr; } }
+        .chart-container {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        .chart-container h3 {
+            color: var(--text);
+            margin-bottom: 16px;
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+        }
+        .chart-wrap { position: relative; width: 100%; }
+
+        /* ===== Tabs ===== */
+        .tabs {
+            background: var(--surface);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+        }
+        .tab-header {
+            display: flex;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            background: #f8fafc;
+            border-bottom: 2px solid var(--border);
+            gap: 0;
+        }
+        .tab-header::-webkit-scrollbar { display: none; }
+        .tab-btn {
+            padding: 14px 18px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 0.88em;
+            color: var(--text-secondary);
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .tab-btn:hover { background: rgba(59,130,246,0.05); color: var(--primary); }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary-light);
+            font-weight: 600;
+            background: rgba(59,130,246,0.05);
+        }
+        .tab-btn .tab-count {
+            background: var(--primary-light);
+            color: white;
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: 600;
+        }
+        .tab-content { padding: 16px; }
+        @media(min-width:768px) { .tab-content { padding: 24px; } }
+        .tab-pane { display: none; animation: fadeIn 0.3s ease; }
+        .tab-pane.active { display: block; }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+        /* ===== Tables ===== */
+        .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+        th {
+            background: var(--primary);
+            color: white;
+            padding: 12px 10px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.9em;
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            text-align: center;
+            vertical-align: middle;
+        }
+        tr:hover td { background: var(--surface-hover); }
+        .user-row { cursor: pointer; transition: var(--transition); }
+        .user-row:hover td { background: #eff6ff !important; }
+
+        /* ===== Cards (mobile-friendly list) ===== */
+        .card-list { display: flex; flex-direction: column; gap: 12px; }
+        .card-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 16px;
+            transition: var(--transition);
+        }
+        .card-item:hover { box-shadow: var(--shadow); border-color: var(--primary-light); }
+        .card-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .card-item-title { font-weight: 600; color: var(--text); }
+        .card-item-body { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 0.85em; }
+        .card-item-body .label { color: var(--text-muted); }
+        .card-item-body .val { color: var(--text); font-weight: 500; text-align: left; }
+
+        /* ===== Badges ===== */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.78em;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .badge-success { background: #d1fae5; color: #065f46; }
+        .badge-warning { background: #fef3c7; color: #92400e; }
+        .badge-danger { background: #fee2e2; color: #991b1b; }
+        .badge-info { background: #cffafe; color: #155e75; }
+        .badge-primary { background: #dbeafe; color: #1e40af; }
+        .badge-outline { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); }
+
+        /* ===== Status ===== */
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; }
+        .status-online { background: var(--success); box-shadow: 0 0 6px rgba(16,185,129,0.4); }
+        .status-offline { background: var(--text-muted); }
+
+        /* ===== Modal ===== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.6);
+            z-index: 1000;
+            backdrop-filter: blur(4px);
+            animation: fadeIn 0.2s;
+        }
+        .modal-overlay.show { display: flex; justify-content: center; align-items: flex-start; padding: 20px; }
+        .modal-box {
+            background: var(--surface);
+            width: 100%;
+            max-width: 680px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            max-height: 85vh;
+            overflow-y: auto;
+            margin-top: 40px;
+            animation: slideUp 0.3s ease;
+        }
+        @keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            z-index: 1;
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+        .modal-header h2 { color: var(--primary); font-size: 1.15em; }
+        .modal-close {
+            width: 36px; height: 36px;
+            background: #f1f5f9;
+            border: none;
+            border-radius: 50%;
+            font-size: 1.3em;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-close:hover { background: #fee2e2; color: var(--danger); }
+        .modal-body { padding: 20px 24px; }
+
+        /* ===== Info Grid (modal) ===== */
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+        .info-item { padding: 12px; background: #f8fafc; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+        .info-item .label { color: var(--text-muted); font-size: 0.78em; margin-bottom: 4px; }
+        .info-item .value { color: var(--text); font-size: 1em; font-weight: 600; word-break: break-all; }
+        .password-field { font-family: 'Courier New', monospace; background: #1e293b; color: #4ade80; padding: 4px 10px; border-radius: 6px; font-size: 0.85em; display: inline-block; }
+
+        /* ===== Activity Feed ===== */
+        .activity-feed { max-height: 400px; overflow-y: auto; }
+        .activity-item {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: var(--transition);
+        }
+        .activity-item:hover { background: var(--surface-hover); }
+        .activity-time { color: var(--text-muted); font-size: 0.78em; min-width: 70px; }
+        .activity-icon {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85em;
+            flex-shrink: 0;
+        }
+        .icon-success { background: #d1fae5; color: #065f46; }
+        .icon-error { background: #fee2e2; color: #991b1b; }
+        .icon-info { background: #cffafe; color: #155e75; }
+
+        /* ===== Filters ===== */
+        .filter-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+        .filter-input, .filter-select {
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 0.9em;
+            background: var(--surface);
+            transition: var(--transition);
+            min-width: 0;
+        }
+        .filter-input { flex: 1; min-width: 180px; }
+        .filter-input:focus, .filter-select:focus { outline: none; border-color: var(--primary-light); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+
+        /* ===== Questions ===== */
+        .question-item {
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 10px;
+            transition: var(--transition);
+        }
+        .question-item:hover { border-color: var(--primary-light); box-shadow: var(--shadow-sm); }
+        .question-text { font-weight: 600; margin-bottom: 8px; color: var(--text); }
+        .question-meta { display: flex; gap: 12px; font-size: 0.82em; color: var(--text-secondary); flex-wrap: wrap; }
+        .question-source {
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+        .source-db { background: #d1fae5; color: #065f46; }
+        .source-groq { background: #dbeafe; color: #1e40af; }
+        .source-gemini { background: #fef3c7; color: #92400e; }
+        .source-random { background: #fee2e2; color: #991b1b; }
+
+        /* ===== Detail Modal Styles ===== */
+        .table-wrap { overflow-x: auto; margin: 0 -4px; }
+        .table-wrap table { width: 100%; border-collapse: collapse; min-width: 500px; }
+        .q-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+        .q-text { font-weight: 600; color: var(--text); font-size: 0.92em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .q-meta { display: flex; gap: 14px; font-size: 0.8em; color: var(--text-secondary); flex-wrap: wrap; }
+        .q-meta span { display: flex; align-items: center; gap: 4px; }
+        .source-tag { padding: 3px 10px; border-radius: 12px; font-size: 0.75em; font-weight: 600; white-space: nowrap; }
+
+        /* ===== Section Headers ===== */
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            font-size: 1.05em;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        /* ===== Empty State ===== */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+        .empty-state .icon { font-size: 2.5em; margin-bottom: 12px; }
+        .empty-state .text { font-size: 0.95em; }
+
+        /* ===== API Cards ===== */
+        .api-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+        @media(min-width:640px) { .api-grid { grid-template-columns: repeat(4, 1fr); } }
+        .api-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 16px;
+            text-align: center;
+            transition: var(--transition);
+        }
+        .api-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+        .api-card .api-icon { font-size: 1.8em; margin-bottom: 8px; }
+        .api-card .api-value { font-size: 1.8em; font-weight: 700; color: var(--primary); }
+        .api-card .api-percent { font-size: 0.82em; color: var(--success); margin-top: 4px; }
+        .api-card .api-label { font-size: 0.82em; color: var(--text-secondary); margin-top: 6px; }
+
+        /* ===== Scrollbar ===== */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* ===== Connection Status ===== */
+        .ws-status {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.78em;
+            font-weight: 600;
+            z-index: 999;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .ws-connected { background: #d1fae5; color: #065f46; }
+        .ws-disconnected { background: #fee2e2; color: #991b1b; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+        /* ===== Responsive Helpers ===== */
+        .hide-mobile { display: none; }
+        @media(min-width:768px) { .hide-mobile { display: table-cell; } }
+        .hide-desktop { display: table-cell; }
+        @media(min-width:768px) { .hide-desktop { display: none; } }
+
+        /* ===== Loading Skeleton ===== */
+        .skeleton {
+            background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 6px;
+        }
+        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-top">
+                    <h1>🤖 حصاد — لوحة التحكم</h1>
+                    <div class="header-meta">
+                        <span class="header-badge">🟢 النظام شغال</span>
+                        <span class="header-badge" id="uptime">⏱️ 0s</span>
+                    </div>
+                </div>
+                <div class="header-time" id="current-time"></div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card skeleton" style="height:90px"></div>
+                <div class="stat-card skeleton" style="height:90px"></div>
+                <div class="stat-card skeleton" style="height:90px"></div>
+                <div class="stat-card skeleton" style="height:90px"></div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-row">
+                <div class="chart-container">
+                    <h3>📊 مصادر الحلول</h3>
+                    <div class="chart-wrap"><canvas id="sourcesChart"></canvas></div>
+                </div>
+                <div class="chart-container">
+                    <h3>⏰ نشاط آخر 24 ساعة</h3>
+                    <div class="chart-wrap"><canvas id="activityChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <div class="tab-header" id="tab-header">
+                    <button class="tab-btn active" data-tab="users" onclick="showTab('users',this)">
+                        <span>👥</span><span class="hide-mobile">المستخدمين</span>
+                    </button>
+                    <button class="tab-btn" data-tab="active" onclick="showTab('active',this)">
+                        <span>🟢</span><span class="hide-mobile">النشطين</span>
+                    </button>
+                    <button class="tab-btn" data-tab="questions" onclick="showTab('questions',this)">
+                        <span>📝</span><span class="hide-mobile">الأسئلة</span>
+                    </button>
+                    <button class="tab-btn" data-tab="errors" onclick="showTab('errors',this)">
+                        <span>❌</span><span class="hide-mobile">الأخطاء</span>
+                    </button>
+                    <button class="tab-btn" data-tab="subscriptions" onclick="showTab('subscriptions',this)">
+                        <span>💎</span><span class="hide-mobile">المشتركين</span>
+                    </button>
+                    <button class="tab-btn" data-tab="api" onclick="showTab('api',this)">
+                        <span>🔌</span><span class="hide-mobile">APIs</span>
+                    </button>
+                </div>
+
+                <div class="tab-content">
+                    <!-- Users Tab -->
+                    <div class="tab-pane active" id="tab-users">
+                        <div class="filter-bar">
+                            <input type="text" class="filter-input" placeholder="🔍 بحث عن مستخدم..." id="userSearch" oninput="filterUsers()">
+                            <select class="filter-select" id="userFilter" onchange="filterUsers()">
+                                <option value="all">الكل</option>
+                                <option value="active">نشطين</option>
+                                <option value="vip">مشتركين</option>
+                            </select>
+                        </div>
+                        <div class="table-container">
+                            <table id="usersTable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>الاسم</th>
+                                        <th class="hide-mobile">يوزر المنصة</th>
+                                        <th>الاشتراك</th>
+                                        <th class="hide-mobile">آخر نشاط</th>
+                                        <th class="hide-mobile">الواجبات</th>
+                                        <th>الحالة</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Active Tab -->
+                    <div class="tab-pane" id="tab-active">
+                        <div class="section-header">🟢 المستخدمين النشطين الآن</div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>المستخدم</th>
+                                        <th>الحالة</th>
+                                        <th class="hide-mobile">النشاط</th>
+                                        <th>التفاصيل</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="active-users-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Questions Tab -->
+                    <div class="tab-pane" id="tab-questions">
+                        <div class="section-header">📝 آخر الأسئلة المحلولة</div>
+                        <div class="filter-bar">
+                            <select class="filter-select" id="questionFilter" onchange="filterQuestions()">
+                                <option value="all">كل الأسئلة</option>
+                                <option value="db">قاعدة البيانات</option>
+                                <option value="groq">Groq</option>
+                                <option value="gemini">Gemini</option>
+                                <option value="random">عشوائي</option>
+                            </select>
+                        </div>
+                        <div id="questions-list" class="card-list"></div>
+                    </div>
+
+                    <!-- Errors Tab -->
+                    <div class="tab-pane" id="tab-errors">
+                        <div class="section-header">❌ سجل الأخطاء</div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>الوقت</th>
+                                        <th>المستخدم</th>
+                                        <th class="hide-mobile">الحدث</th>
+                                        <th>الخطأ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="errors-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Subscriptions Tab -->
+                    <div class="tab-pane" id="tab-subscriptions">
+                        <div class="section-header">💎 المشتركين النشطين</div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>المستخدم</th>
+                                        <th>تاريخ الانتهاء</th>
+                                        <th>الأيام المتبقية</th>
+                                        <th class="hide-mobile">الواجبات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subscriptions-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- API Tab -->
+                    <div class="tab-pane" id="tab-api">
+                        <div class="section-header">🔌 إحصائيات APIs</div>
+                        <div class="api-grid">
+                            <div class="api-card">
+                                <div class="api-icon">🦙</div>
+                                <div class="api-value" id="groq-value">0</div>
+                                <div class="api-percent" id="groq-percent">0%</div>
+                                <div class="api-label">Groq</div>
+                            </div>
+                            <div class="api-card">
+                                <div class="api-icon">✨</div>
+                                <div class="api-value" id="gemini-value">0</div>
+                                <div class="api-percent" id="gemini-percent">0%</div>
+                                <div class="api-label">Gemini</div>
+                            </div>
+                            <div class="api-card">
+                                <div class="api-icon">💾</div>
+                                <div class="api-value" id="db-value">0</div>
+                                <div class="api-percent" id="db-percent">0%</div>
+                                <div class="api-label">قاعدة البيانات</div>
+                            </div>
+                            <div class="api-card">
+                                <div class="api-icon">🎲</div>
+                                <div class="api-value" id="random-value">0</div>
+                                <div class="api-percent" id="random-percent">0%</div>
+                                <div class="api-label">عشوائي</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal -->
+        <div class="modal-overlay" id="modalOverlay">
+            <div class="modal-box">
+                <div class="modal-header">
+                    <h2 id="modal-title">تفاصيل</h2>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="modal-body"></div>
+            </div>
+        </div>
+
+        <!-- WebSocket Status -->
+        <div class="ws-status ws-connected" id="ws-status">
+            <span class="status-dot status-online"></span> متصل
+        </div>
+    </div>
+
+    <script>
+    /* ===== Global State ===== */
+    let sourcesChart = null, activityChart = null;
+    let allUsers = [], allQuestions = [];
+    let ws = null, wsRetries = 0;
+    const MAX_RETRIES = 10;
+    const startTime = Date.now();
+
+    /* ===== Escape HTML (XSS protection) ===== */
+    function esc(str) {
+        if (!str) return '';
+        const d = document.createElement('div');
+        d.textContent = String(str);
+        return d.innerHTML;
+    }
+
+    /* ===== WebSocket ===== */
+    function connectWS() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+        ws.onopen = () => {
+            wsRetries = 0;
+            document.getElementById('ws-status').className = 'ws-status ws-connected';
+            document.getElementById('ws-status').innerHTML = '<span class="status-dot status-online"></span> متصل';
+        };
+
+        ws.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                updateDashboard(data);
+            } catch(err) { console.error('Parse error:', err); }
+        };
+
+        ws.onerror = () => {
+            document.getElementById('ws-status').className = 'ws-status ws-disconnected';
+            document.getElementById('ws-status').innerHTML = '<span class="status-dot status-offline"></span> انقطع الاتصال';
+        };
+
+        ws.onclose = () => {
+            document.getElementById('ws-status').className = 'ws-status ws-disconnected';
+            document.getElementById('ws-status').innerHTML = '<span class="status-dot status-offline"></span> إعادة الاتصال...';
+            if (wsRetries < MAX_RETRIES) {
+                wsRetries++;
+                setTimeout(connectWS, Math.min(1000 * Math.pow(2, wsRetries), 30000));
+            }
+        };
+    }
+    connectWS();
+
+    /* ===== Dashboard Update ===== */
+    function updateDashboard(data) {
+        updateStats(data.stats);
+        updateCharts(data);
+        updateUsersTable(data.users);
+        updateActiveUsers(data.active_users);
+        updateQuestions(data.recent_questions);
+        updateErrors(data.recent_errors);
+        updateSubscriptions(data.subscriptions);
+        updateAPIStats(data.api_stats);
+    }
+
+    /* ===== Stats Cards ===== */
+    function updateStats(stats) {
+        const grid = document.getElementById('stats-grid');
+        const cards = [
+            { t:'👥 إجمالي المستخدمين', v:stats.total_users, c:'#3b82f6', d:'all-users' },
+            { t:'🟢 نشطين الآن', v:stats.active_now, c:'#10b981', d:'active-now' },
+            { t:'📅 نشطين اليوم', v:stats.active_today, c:'#06b6d4', d:'active-today' },
+            { t:'💎 المشتركين', v:stats.subscribers, c:'#8b5cf6', d:'subscribers' },
+            { t:'🎟️ خلصت مجانيهم', v:stats.finished_free, c:'#ef4444', d:'finished-free' },
+            { t:'🎁 لسه مجاني', v:stats.remaining_free, c:'#f59e0b', d:'remaining-free' },
+            { t:'📚 إجمالي الواجبات', v:stats.total_hw, c:'#6366f1', d:'total-hw' },
+            { t:'📝 إجمالي الأسئلة', v:stats.total_questions, c:'#0ea5e9', d:'total-questions' },
+            { t:'✅ إجابات صحيحة', v:stats.total_correct, c:'#10b981', d:'correct' },
+            { t:'❌ إجابات خاطئة', v:stats.total_wrong, c:'#ef4444', d:'wrong' },
+            { t:'💾 ضربات DB', v:stats.db_hits, c:'#059669', d:'db' },
+            { t:'🦙 Groq', v:stats.groq, c:'#0ea5e9', d:'groq' },
+            { t:'✨ Gemini', v:stats.gemini, c:'#f59e0b', d:'gemini' },
+            { t:'🎲 عشوائي', v:stats.random, c:'#6b7280', d:'random' },
+            { t:'❌ الأخطاء', v:stats.total_errors, c:'#ef4444', d:'errors' },
+            { t:'💻 CPU', v:stats.cpu+'%', c:'#6366f1', d:'system' },
+            { t:'📀 الذاكرة', v:stats.memory+'%', c:'#8b5cf6', d:'system' }
+        ];
+
+        grid.innerHTML = cards.map(c => `
+            <div class="stat-card" onclick="openStatDetail('${c.d}')" style="border-top:3px solid ${c.c};cursor:pointer">
+                <div class="title">${esc(c.t)}</div>
+                <div class="value">${esc(String(c.v))}</div>
+            </div>
+        `).join('');
+
+        // Uptime
+        const up = Math.floor((Date.now() - startTime) / 1000);
+        const h = Math.floor(up/3600), m = Math.floor((up%3600)/60), s = up%60;
+        document.getElementById('uptime').textContent = `⏱️ ${h}h ${m}m ${s}s`;
+    }
+
+    /* ===== Charts ===== */
+    function updateCharts(data) {
+        const s = data.stats;
+        const colors = ['#059669','#0ea5e9','#f59e0b','#6b7280'];
+
+        if (!sourcesChart) {
+            sourcesChart = new Chart(document.getElementById('sourcesChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['قاعدة البيانات','Groq','Gemini','عشوائي'],
+                    datasets: [{ data:[s.db_hits,s.groq,s.gemini,s.random], backgroundColor:colors, borderWidth:0, hoverOffset:8 }]
+                },
+                options: {
+                    responsive:true,
+                    cutout:'65%',
+                    plugins:{ legend:{ position:'bottom', labels:{ padding:16, usePointStyle:true, font:{size:12} } } }
+                }
+            });
+        } else {
+            sourcesChart.data.datasets[0].data = [s.db_hits,s.groq,s.gemini,s.random];
+            sourcesChart.update('none');
+        }
+
+        if (!activityChart) {
+            activityChart = new Chart(document.getElementById('activityChart'), {
+                type: 'line',
+                data: {
+                    labels: data.activity_labels||[],
+                    datasets: [{
+                        label:'المستخدمين النشطين',
+                        data: data.activity_data||[],
+                        borderColor:'#3b82f6',
+                        backgroundColor:'rgba(59,130,246,0.08)',
+                        tension:0.4,
+                        fill:true,
+                        pointRadius:3,
+                        pointHoverRadius:6
+                    }]
+                },
+                options: {
+                    responsive:true,
+                    plugins:{ legend:{display:false} },
+                    scales:{ y:{beginAtZero:true, grid:{color:'#f1f5f9'}}, x:{grid:{display:false}} }
+                }
+            });
+        } else {
+            activityChart.data.labels = data.activity_labels;
+            activityChart.data.datasets[0].data = data.activity_data;
+            activityChart.update('none');
+        }
+    }
+
+    /* ===== Users Table ===== */
+    function updateUsersTable(users) {
+        allUsers = users || [];
+        renderUsers(allUsers);
+    }
+
+    function renderUsers(users) {
+        const body = document.getElementById('users-body');
+        if (!users.length) {
+            body.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="icon">👥</div><div class="text">لا يوجد مستخدمين</div></div></td></tr>';
+            return;
+        }
+        body.innerHTML = users.map(u => `
+            <tr class="user-row" onclick="showUserDetails(${u.id})">
+                <td><code>${esc(String(u.id))}</code></td>
+                <td style="font-weight:500">${esc(u.name)}</td>
+                <td class="hide-mobile"><code>${esc(u.platform_user||'—')}</code></td>
+                <td><span class="badge ${u.is_subscribed?'badge-success':'badge-danger'}">${u.is_subscribed?'مشترك':'غير مشترك'}</span></td>
+                <td class="hide-mobile">${esc(u.last_active||'—')}</td>
+                <td class="hide-mobile">${u.total_hw||0}</td>
+                <td>${u.is_online?'<span class="badge badge-success">🟢 نشيط</span>':'<span class="badge badge-outline">⚫ غير نشيط</span>'}</td>
+            </tr>
+        `).join('');
+    }
+
+    function filterUsers() {
+        const search = document.getElementById('userSearch').value.toLowerCase();
+        const filter = document.getElementById('userFilter').value;
+        let filtered = allUsers;
+
+        if (search) {
+            filtered = filtered.filter(u =>
+                (u.name||'').toLowerCase().includes(search) ||
+                String(u.id).includes(search) ||
+                (u.platform_user||'').toLowerCase().includes(search)
+            );
+        }
+        if (filter === 'active') filtered = filtered.filter(u => u.is_online);
+        if (filter === 'vip') filtered = filtered.filter(u => u.is_subscribed);
+
+        renderUsers(filtered);
+    }
+
+    /* ===== Active Users ===== */
+    function updateActiveUsers(users) {
+        const body = document.getElementById('active-users-body');
+        if (!users || !users.length) {
+            body.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">😴</div><div class="text">لا يوجد مستخدمين نشطين</div></div></td></tr>';
+            return;
+        }
+        body.innerHTML = users.map(u => `
+            <tr>
+                <td><b>${esc(u.name)}</b> <code>${esc(String(u.id))}</code></td>
+                <td><span class="badge badge-${u.status_class==='success'?'success':u.status_class==='warning'?'warning':'info'}">${esc(u.status)}</span></td>
+                <td class="hide-mobile">${esc(u.current_action)}</td>
+                <td><button onclick="showUserDetails(${u.id})" class="badge badge-primary" style="cursor:pointer">عرض</button></td>
+            </tr>
+        `).join('');
+    }
+
+    /* ===== Questions ===== */
+    function updateQuestions(questions) {
+        allQuestions = questions || [];
+        renderQuestions(allQuestions);
+    }
+
+    function renderQuestions(questions) {
+        const list = document.getElementById('questions-list');
+        if (!questions.length) {
+            list.innerHTML = '<div class="empty-state"><div class="icon">📝</div><div class="text">لا توجد أسئلة</div></div>';
+            return;
+        }
+        list.innerHTML = questions.map(q => {
+            let sc='', st='';
+            switch(q.source){
+                case 'db': sc='source-db'; st='💾 قاعدة البيانات'; break;
+                case 'groq': sc='source-groq'; st='🦙 Groq'; break;
+                case 'gemini': sc='source-gemini'; st='✨ Gemini'; break;
+                default: sc='source-random'; st='🎲 عشوائي';
+            }
+            return `
+                <div class="card-item">
+                    <div class="card-item-header">
+                        <div class="card-item-title">${esc(q.text)}</div>
+                        <span class="question-source ${sc}">${st}</span>
+                    </div>
+                    <div class="card-item-body">
+                        <div><span class="label">👤 المستخدم:</span></div><div class="val">${esc(q.user)}</div>
+                        <div><span class="label">📚 المادة:</span></div><div class="val">${esc(q.subject)}</div>
+                        <div><span class="label">⏱️ الوقت:</span></div><div class="val">${esc(q.time)}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function filterQuestions() {
+        const filter = document.getElementById('questionFilter').value;
+        if (filter === 'all') { renderQuestions(allQuestions); return; }
+        renderQuestions(allQuestions.filter(q => q.source === filter));
+    }
+
+    /* ===== Errors ===== */
+    function updateErrors(errors) {
+        const body = document.getElementById('errors-body');
+        if (!errors || !errors.length) {
+            body.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">✅</div><div class="text">لا توجد أخطاء — كل شيء يعمل!</div></div></td></tr>';
+            return;
+        }
+        body.innerHTML = errors.map(e => `
+            <tr>
+                <td>${esc(e.time)}</td>
+                <td><code>${esc(String(e.user_id))}</code></td>
+                <td class="hide-mobile">${esc(e.event)}</td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${esc(e.message)}">${esc(e.message)}</td>
+            </tr>
+        `).join('');
+    }
+
+    /* ===== Subscriptions ===== */
+    function updateSubscriptions(subs) {
+        const body = document.getElementById('subscriptions-body');
+        if (!subs || !subs.length) {
+            body.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="icon">💎</div><div class="text">لا يوجد مشتركين</div></div></td></tr>';
+            return;
+        }
+        body.innerHTML = subs.map(s => `
+            <tr>
+                <td><b>${esc(s.name)}</b> <code>${esc(String(s.id))}</code></td>
+                <td>${esc(s.expiry)}</td>
+                <td><span class="badge ${s.days_left>7?'badge-success':s.days_left>3?'badge-warning':'badge-danger'}">${s.days_left} يوم</span></td>
+                <td class="hide-mobile">${s.total_hw}</td>
+            </tr>
+        `).join('');
+    }
+
+    /* ===== API Stats ===== */
+    function updateAPIStats(stats) {
+        const ids = ['groq','gemini','db','random'];
+        const vals = [stats.groq, stats.gemini, stats.db_hits, stats.random];
+        const total = vals.reduce((a,b)=>a+b,0) || 1;
+        ids.forEach((id,i) => {
+            document.getElementById(id+'-value').textContent = vals[i];
+            document.getElementById(id+'-percent').textContent = Math.round(vals[i]/total*100)+'%';
+        });
+    }
+
+    /* ===== Tabs ===== */
+    function showTab(name, btn) {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        else document.querySelector(`[data-tab="${name}"]`)?.classList.add('active');
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        document.getElementById('tab-'+name)?.classList.add('active');
+    }
+
+    /* ===== Modal ===== */
+    function openModal(title, html) {
+        document.getElementById('modal-title').textContent = title;
+        document.getElementById('modal-body').innerHTML = html;
+        document.getElementById('modalOverlay').classList.add('show');
+    }
+    function closeModal() {
+        document.getElementById('modalOverlay').classList.remove('show');
+    }
+    document.getElementById('modalOverlay').addEventListener('click', e => {
+        if (e.target === e.currentTarget) closeModal();
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+    /* ===== Stat Card Detail — كل بطاقة قابلة للضغط ===== */
+    async function openStatDetail(type) {
+        // db و groq لهم عرض خاص
+        if (type === 'db') return showDBDetails();
+        if (type === 'groq') return showGroqDetails();
+
+        try {
+            const res = await fetch(`/api/detail/${type}`);
+            const data = await res.json();
+            if (data.error) { showToast('⚠️ ' + data.error, 'error'); return; }
+            renderDetailModal(data);
+        } catch(err) {
+            showToast('⚠️ خطأ في تحميل البيانات', 'error');
+        }
+    }
+
+    function renderDetailModal(data) {
+        const items = Array.isArray(data.data) ? data.data : [];
+        let html = `<div style="margin-bottom:16px;color:var(--text-muted);font-size:0.9em">العدد: <b style="color:var(--text)">${data.count}</b></div>`;
+
+        // نظام المعلومات
+        if (data.type === 'system' && !Array.isArray(data.data)) {
+            const s = data.data;
+            html = `<div class="info-grid">
+                <div class="info-item"><div class="label">المعالج</div><div class="value">${s.cpu_percent||0}%</div></div>
+                <div class="info-item"><div class="label">أنوية</div><div class="value">${s.cpu_cores||'—'}</div></div>
+                <div class="info-item"><div class="label">الذاكرة</div><div class="value">${s.mem_percent||0}%</div></div>
+                <div class="info-item"><div class="label">ذاكرة مستخدمة</div><div class="value">${s.mem_used_gb||0} / ${s.mem_total_gb||0} GB</div></div>
+                <div class="info-item"><div class="label">القرص</div><div class="value">${s.disk_percent||0}%</div></div>
+                <div class="info-item"><div class="label">قرص مستخدم</div><div class="value">${s.disk_used_gb||0} / ${s.disk_total_gb||0} GB</div></div>
+                <div class="info-item"><div class="label">جلسات نشطة</div><div class="value">${s.active_sessions||0}</div></div>
+            </div>`;
+            openModal(data.title, html);
+            return;
+        }
+
+        if (items.length === 0) {
+            html += '<div class="empty-state"><div class="icon">📭</div><div class="text">لا توجد بيانات</div></div>';
+            openModal(data.title, html);
+            return;
+        }
+
+        // جدول المستخدمين (all-users)
+        if (data.type === 'users') {
+            html += '<div class="table-wrap"><table><thead><tr><th>ID</th><th>الاسم</th><th>المنصة</th><th>الاشتراك</th><th>مجاني</th><th>واجبات</th><th>آخر نشاط</th></tr></thead><tbody>';
+            items.forEach(u => {
+                html += `<tr class="user-row" onclick="closeModal();showUserDetails(${u.id})">
+                    <td><code>${u.id}</code></td><td style="font-weight:600">${esc(u.name)}</td>
+                    <td><code>${esc(u.platform)}</code></td>
+                    <td><span class="badge ${u.subscribed?'badge-success':'badge-danger'}">${u.subscribed?'مشترك':'غير مشترك'}</span></td>
+                    <td>${u.free}</td><td>${u.hw}</td><td>${esc(u.last_active||'—')}</td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // جدول المشتركين
+        else if (data.type === 'subscribers') {
+            html += '<div class="table-wrap"><table><thead><tr><th>ID</th><th>الاسم</th><th>الانتهاء</th><th>الأيام</th><th>واجبات</th></tr></thead><tbody>';
+            items.forEach(s => {
+                const cls = s.days_left <= 3 ? 'badge-danger' : s.days_left <= 7 ? 'badge-warning' : 'badge-success';
+                html += `<tr><td><code>${s.id}</code></td><td style="font-weight:600">${esc(s.name)}</td>
+                    <td>${esc(s.expiry)}</td><td><span class="badge ${cls}">${s.days_left} يوم</span></td><td>${s.hw}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // جدول الواجبات
+        else if (data.type === 'homeworks') {
+            html += '<div class="table-wrap"><table><thead><tr><th>المستخدم</th><th>المادة</th><th>الأسئلة</th><th>صحيح</th><th>خطأ</th><th>النسبة</th><th>المدة</th></tr></thead><tbody>';
+            items.forEach(h => {
+                const cls = h.pct >= 80 ? 'badge-success' : h.pct >= 50 ? 'badge-warning' : 'badge-danger';
+                html += `<tr><td style="font-weight:600">${esc(h.user)}</td><td>${esc(h.subject)}</td>
+                    <td>${h.total}</td><td style="color:var(--success)">${h.correct}</td>
+                    <td style="color:var(--error)">${h.wrong}</td>
+                    <td><span class="badge ${cls}">${h.pct}%</span></td><td>${esc(h.duration||'—')}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // الأسئلة (questions, total-questions, correct, wrong, gemini, random)
+        else if (data.type === 'questions') {
+            const sourceMap = {db:{cls:'source-db',t:'💾 DB'},groq:{cls:'source-groq',t:'🦙 Groq'},gemini:{cls:'source-gemini',t:'✨ Gemini'},random:{cls:'source-random',t:'🎲 عشوائي'}};
+            html += '<div class="card-list">';
+            items.forEach(q => {
+                const src = sourceMap[q.source] || sourceMap.db;
+                html += `<div class="question-item">
+                    <div class="q-header"><span class="q-text">${esc(q.question||q.text||'—')}</span>
+                    ${q.source?`<span class="source-tag ${src.cls}">${src.t}</span>`:''}</div>
+                    <div class="q-meta"><span>👤 ${esc(q.user)}</span><span>📚 ${esc(q.subject)}</span>${q.time?`<span>⏱️ ${esc(q.time)}</span>`:''}</div>
+                </div>`;
+            });
+            html += '</div>';
+        }
+
+        // الأخطاء
+        else if (data.type === 'errors') {
+            html += '<div class="table-wrap"><table><thead><tr><th>الوقت</th><th>المستخدم</th><th>الحدث</th><th>الخطأ</th></tr></thead><tbody>';
+            items.forEach(e => {
+                html += `<tr><td style="font-family:monospace;font-size:0.82em">${esc(e.time)}</td>
+                    <td><code>${e.user_id}</code></td><td>${esc(e.event)}</td>
+                    <td style="color:var(--error)">${esc(e.message)}</td></tr>`;
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // جدول عام (active-now, active-today, finished-free, remaining-free, correct, wrong)
+        else {
+            const cols = Object.keys(items[0]||{});
+            const labels = {id:'ID',name:'الاسم',username:'اليوزر',last_active:'آخر نشاط',in_session:'الجلسة',free:'مجاني',hw:'واجبات',subject:'المادة',correct:'صحيح',wrong:'خطأ',total:'الأسئلة',subscribed:'مشترك',days_left:'الأيام',expiry:'الانتهاء'};
+            html += '<div class="table-wrap"><table><thead><tr>';
+            cols.forEach(c => { html += `<th>${labels[c]||c}</th>`; });
+            html += '</tr></thead><tbody>';
+            items.forEach(row => {
+                html += '<tr>';
+                cols.forEach(c => {
+                    let v = row[c];
+                    if (c==='id') v = `<code>${v}</code>`;
+                    else if (c==='name') v = `<span style="font-weight:600">${esc(String(v))}</span>`;
+                    else if (c==='in_session') v = v ? '<span class="badge badge-success">في جلسة</span>' : '<span class="badge badge-info">متصل</span>';
+                    else if (c==='subscribed') v = v ? '<span class="badge badge-success">نعم</span>' : '<span class="badge badge-danger">لا</span>';
+                    html += `<td>${v??'—'}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+
+        openModal(data.title, html);
+    }
+
+    /* ===== User Details Modal ===== */
+    async function showUserDetails(userId) {
+        try {
+            const res = await fetch(`/api/user/${userId}`);
+            if (!res.ok) throw new Error('Failed');
+            const u = await res.json();
+
+            const html = `
+                <div class="info-grid">
+                    <div class="info-item"><div class="label">المعرف</div><div class="value"><code>${esc(String(u.id))}</code></div></div>
+                    <div class="info-item"><div class="label">الاسم</div><div class="value">${esc(u.name)}</div></div>
+                    <div class="info-item"><div class="label">يوزر المنصة</div><div class="value"><code>${esc(u.platform_user||'—')}</code></div></div>
+                    <div class="info-item"><div class="label">كلمة المرور</div><div class="value"><span class="password-field">${esc(u.password||'—')}</span></div></div>
+                    <div class="info-item"><div class="label">الاشتراك</div><div class="value"><span class="badge ${u.is_subscribed?'badge-success':'badge-danger'}">${u.is_subscribed?'✅ مشترك':'❌ غير مشترك'}</span></div></div>
+                    <div class="info-item"><div class="label">تاريخ الانتهاء</div><div class="value">${esc(u.expiry||'—')}</div></div>
+                    <div class="info-item"><div class="label">المحاولات المجانية</div><div class="value">${u.attempts||0}</div></div>
+                    <div class="info-item"><div class="label">الواجبات المحلولة</div><div class="value">${u.total_hw||0}</div></div>
+                    <div class="info-item"><div class="label">الأسئلة</div><div class="value">${u.total_questions||0}</div></div>
+                    <div class="info-item"><div class="label">آخر نشاط</div><div class="value">${esc(u.last_active||'—')}</div></div>
+                </div>
+                <h3 style="margin-bottom:12px;font-size:1em;color:var(--text)">📋 آخر النشاطات</h3>
+                <div class="activity-feed">
+                    ${(u.recent_activities||[]).map(a => `
+                        <div class="activity-item">
+                            <div class="activity-time">${esc(a.time)}</div>
+                            <div class="activity-icon icon-${a.type}">${a.icon}</div>
+                            <div>${esc(a.description)}</div>
+                        </div>
+                    `).join('') || '<div class="empty-state"><div class="text">لا توجد نشاطات</div></div>'}
+                </div>
+            `;
+            openModal(`تفاصيل المستخدم — ${esc(u.name)}`, html);
+        } catch(err) {
+            openModal('خطأ', '<div class="empty-state"><div class="icon">⚠️</div><div class="text">فشل جلب البيانات</div></div>');
+        }
+    }
+
+    /* ===== DB Details Modal ===== */
+    async function showDBDetails() {
+        try {
+            const res = await fetch('/api/db-questions');
+            const qs = await res.json();
+            let html = '';
+            if (!qs.length) {
+                html = '<div class="empty-state"><div class="icon">💾</div><div class="text">لا توجد أسئلة من قاعدة البيانات</div></div>';
+            } else {
+                html = '<div class="card-list">' + qs.map(q => `
+                    <div class="card-item" style="border-right:4px solid #059669">
+                        <div class="card-item-header">
+                            <div class="card-item-title">👤 ${esc(q.user)}</div>
+                            <span class="badge badge-success">📚 ${esc(q.subject)}</span>
+                        </div>
+                        <div style="background:#f8fafc;padding:10px;border-radius:8px;margin-bottom:8px;font-size:0.9em">${esc(q.question)}</div>
+                        <div style="color:var(--text-muted);font-size:0.78em">🆔 ${esc(String(q.user_id))} · ⏱️ ${esc(q.time)}</div>
+                    </div>
+                `).join('') + '</div>';
+            }
+            openModal(`💾 ضربات قاعدة البيانات (${qs.length})`, html);
+        } catch(err) {
+            openModal('خطأ', '<div class="empty-state"><div class="text">فشل جلب البيانات</div></div>');
+        }
+    }
+
+    /* ===== Groq Details Modal ===== */
+    async function showGroqDetails() {
+        try {
+            const res = await fetch('/api/groq-questions');
+            const qs = await res.json();
+            let html = '';
+            if (!qs.length) {
+                html = '<div class="empty-state"><div class="icon">🦙</div><div class="text">لا توجد أسئلة من Groq</div></div>';
+            } else {
+                html = '<div class="card-list">' + qs.map(q => `
+                    <div class="card-item" style="border-right:4px solid #0ea5e9">
+                        <div class="card-item-header">
+                            <div class="card-item-title">👤 ${esc(q.user)}</div>
+                            <span class="badge badge-info">📚 ${esc(q.subject)}</span>
+                        </div>
+                        <div style="background:#f8fafc;padding:10px;border-radius:8px;margin-bottom:8px;font-size:0.9em">${esc(q.question)}</div>
+                        <div style="color:var(--text-muted);font-size:0.78em">🆔 ${esc(String(q.user_id))} · ⏱️ ${esc(q.time)}</div>
+                    </div>
+                `).join('') + '</div>';
+            }
+            openModal(`🦙 أسئلة Groq (${qs.length})`, html);
+        } catch(err) {
+            openModal('خطأ', '<div class="empty-state"><div class="text">فشل جلب البيانات</div></div>');
+        }
+    }
+
+    /* ===== Clock ===== */
+    function updateTime() {
+        const now = new Date();
+        document.getElementById('current-time').textContent =
+            now.toLocaleString('ar-SA', { timeZone:'Asia/Riyadh', dateStyle:'full', timeStyle:'medium' });
+    }
+    setInterval(updateTime, 1000);
+    updateTime();
+    </script>
+</body>
+</html>
+"""
+
+
+# ==============================================================================
+# WebSocket Connection Manager
+# ==============================================================================
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        dead = []
+        for conn in self.active_connections:
+            try:
+                await conn.send_json(message)
+            except Exception:
+                dead.append(conn)
+        for conn in dead:
+            self.disconnect(conn)
+
+
+manager = ConnectionManager()
+
+
+# ==============================================================================
+# Routes — الصفحة الرئيسية والداشبورد
+# ==============================================================================
+
+@app.get("/", response_class=HTMLResponse)
+async def login_page():
+    return LOGIN_PAGE
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page():
+    return DASHBOARD_PAGE
+
+
+# ==============================================================================
+# Routes — API endpoints (Authentication)
+# ==============================================================================
+
+@app.post("/api/login")
+async def api_login(login_data: LoginData, request: Request):
+    """
+    تسجيل دخول آمن مع:
+    - Rate Limiting (5 محاولات / 5 دقائق)
+    - bcrypt password verification
+    - JWT session cookie (HttpOnly)
+    - Audit logging
+    """
+    success, message, token = await auth_manager.authenticate(
+        username=login_data.username,
+        password=login_data.password,
+        request=request,
+    )
+
+    if success and token:
+        # إنشاء response مع cookie
+        json_response = JSONResponse({
+            "success": True,
+            "message": message,
+            "username": login_data.username,
+        })
+        json_response.set_cookie(
+            key=COOKIE_NAME,
+            value=token,
+            httponly=True,
+            secure=config.dashboard_cookie_secure,
+            samesite="strict",
+            max_age=config.jwt_expiry_hours * 3600,
+            path="/",
+        )
+        return json_response
+
+    # Rate limit أو خطأ في المصادقة
+    is_rate_limited = "rate" in message.lower() or "محظور" in message or "تجاوز" in message
+    status_code = 429 if is_rate_limited else 401
+    return JSONResponse(
+        {"success": False, "message": message, "rate_limited": is_rate_limited},
+        status_code=status_code,
+    )
+
+
+@app.post("/api/logout")
+async def api_logout(request: Request):
+    """تسجيل خروج ومسح الـ JWT cookie"""
+    payload = await auth_manager.verify_session(request)
+    if payload:
+        auth_manager.audit_logger.log_attempt(
+            username=payload.get("sub"),
+            ip_address=request.client.host if request.client else "unknown",
+            success=True,
+            reason="logout",
+        )
+
+    response = JSONResponse({"success": True, "message": "تم تسجيل الخروج"})
+    response.delete_cookie(COOKIE_NAME, path="/")
+    return response
+
+
+@app.get("/api/me")
+async def api_me(request: Request):
+    """جلب معلومات المستخدم الحالي (للـ frontend)"""
+    payload = await auth_manager.verify_session(request)
+    if not payload:
+        return JSONResponse(
+            {"authenticated": False, "redirect": "/"},
+            status_code=401
+        )
+    return {
+        "authenticated": True,
+        "username": payload.get("sub"),
+        "issued_at": payload.get("iat"),
+        "expires_at": payload.get("exp"),
+        "absolute_exp": payload.get("exp_abs"),
+    }
+
+
+@app.get("/api/verify")
+async def api_verify(request: Request):
+    """التحقق من صلاحية الجلسة (backward-compatible)"""
+    payload = await auth_manager.verify_session(request)
+    if payload:
+        return {"success": True, "username": payload.get("sub")}
+    return JSONResponse({"success": False}, status_code=401)
+
+
+@app.get("/api/user/{user_id}")
+async def get_user_details(user_id: int):
+    user = await db_get_user(user_id)
+    if not user:
+        return JSONResponse({"error": "User not found"}, status_code=404)
+
+    password = decrypt_password(user.get('dars360_pass', '')) if user.get('dars360_pass') else None
+
+    conn = await _db_pool.get_connection()
+
+    async with conn.execute("""
+        SELECT event_name, created_at, details FROM event_logs
+        WHERE user_id = ? ORDER BY created_at DESC LIMIT 10
+    """, (user_id,)) as c:
+        activities = await c.fetchall()
+
+    async with conn.execute("""
+        SELECT COUNT(*) FROM event_logs WHERE user_id = ? AND event_type = 'QUESTION_SOLVED'
+    """, (user_id,)) as c:
+        total_questions = (await c.fetchone())[0] or 0
+
+    return {
+        "id": user['telegram_id'],
+        "name": user.get('name', ''),
+        "platform_user": user.get('dars360_user'),
+        "password": password,
+        "is_subscribed": await is_subscribed(user_id),
+        "expiry": user.get('expiry_hijri'),
+        "attempts": user.get('free_attempts', 0),
+        "total_hw": user.get('total_hw_solved', 0),
+        "total_questions": total_questions,
+        "last_active": datetime.fromtimestamp(user.get('last_active', 0)).strftime('%Y-%m-%d %H:%M') if user.get('last_active') else '—',
+        "recent_activities": [
+            {
+                "time": datetime.fromtimestamp(a[1]).strftime('%H:%M:%S'),
+                "type": "success" if a[2] else "info",
+                "icon": "📌",
+                "description": a[0]
+            } for a in activities
+        ]
+    }
+
+
+@app.get("/api/db-questions")
+async def get_db_questions():
+    try:
+        conn = await _db_pool.get_connection()
+        questions = []
+        async with conn.execute("""
+            SELECT user_id, details, created_at FROM event_logs
+            WHERE event_name = 'DB' AND event_type = 'QUESTION_SOLVED'
+            ORDER BY created_at DESC LIMIT 50
+        """) as c:
+            async for row in c:
+                details = json.loads(row[1]) if row[1] else {}
+                user = await db_get_user(row[0])
+                questions.append({
+                    "user": user.get('name', str(row[0])) if user else str(row[0]),
+                    "user_id": row[0],
+                    "subject": details.get('subject', 'غير معروف'),
+                    "question": details.get('question', 'سؤال'),
+                    "time": datetime.fromtimestamp(row[2]).strftime('%Y-%m-%d %H:%M:%S')
+                })
+        return JSONResponse(questions)
+    except Exception as e:
+        admin_trace("DB_QUESTIONS_ERR", str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/groq-questions")
+async def get_groq_questions():
+    try:
+        conn = await _db_pool.get_connection()
+        questions = []
+        async with conn.execute("""
+            SELECT user_id, details, created_at FROM event_logs
+            WHERE event_name = 'GROQ' AND event_type = 'QUESTION_SOLVED'
+            ORDER BY created_at DESC LIMIT 50
+        """) as c:
+            async for row in c:
+                details = json.loads(row[1]) if row[1] else {}
+                user = await db_get_user(row[0])
+                questions.append({
+                    "user": user.get('name', str(row[0])) if user else str(row[0]),
+                    "user_id": row[0],
+                    "subject": details.get('subject', 'غير معروف'),
+                    "question": details.get('question', 'سؤال'),
+                    "time": datetime.fromtimestamp(row[2]).strftime('%Y-%m-%d %H:%M:%S')
+                })
+        return JSONResponse(questions)
+    except Exception as e:
+        admin_trace("GROQ_QUESTIONS_ERR", str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/detail/{detail_type}")
+async def get_detail(detail_type: str):
+    """جلب تفاصيل لأي بطاقة إحصائية"""
+    try:
+        conn = await _db_pool.get_connection()
+        now_ts = time.time()
+        today_start = now_ts - (now_ts % 86400)
+        five_min_ago = now_ts - 300
+
+        if detail_type == "all-users":
+            rows = []
+            async with conn.execute("""
+                SELECT telegram_id, name, tg_username, dars360_user, expiry_ts, free_attempts, total_hw_solved, last_active
+                FROM users ORDER BY created_at DESC LIMIT 100
+            """) as c:
+                async for row in c:
+                    is_sub = False
+                    try: is_sub = float(row[4]) > now_ts if row[4] else False
+                    except: pass
+                    la = ""
+                    if row[7]:
+                        try: la = datetime.fromtimestamp(float(row[7])).strftime('%Y-%m-%d %H:%M')
+                        except: la = "—"
+                    rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "username": row[2] or '—',
+                                 "platform": row[3] or '—', "subscribed": is_sub, "free": row[5] or 0,
+                                 "hw": row[6] or 0, "last_active": la})
+            return JSONResponse({"title": "👥 إجمالي المستخدمين", "count": len(rows), "type": "users", "data": rows})
+
+        elif detail_type == "active-now":
+            rows = []
+            async with conn.execute("""
+                SELECT telegram_id, name, last_active FROM users WHERE last_active > ? ORDER BY last_active DESC
+            """, (five_min_ago,)) as c:
+                async for row in c:
+                    la = ""
+                    if row[2]:
+                        try: la = datetime.fromtimestamp(float(row[2])).strftime('%H:%M:%S')
+                        except: la = "—"
+                    in_session = row[0] in active_sessions
+                    rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "last_active": la, "in_session": in_session})
+            return JSONResponse({"title": "⚡ نشطين الآن", "count": len(rows), "type": "table", "data": rows})
+
+        elif detail_type == "active-today":
+            rows = []
+            async with conn.execute("""
+                SELECT telegram_id, name, last_active FROM users WHERE last_active > ? ORDER BY last_active DESC
+            """, (today_start,)) as c:
+                async for row in c:
+                    la = ""
+                    if row[2]:
+                        try: la = datetime.fromtimestamp(float(row[2])).strftime('%H:%M:%S')
+                        except: la = "—"
+                    rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "last_active": la})
+            return JSONResponse({"title": "📆 نشطين اليوم", "count": len(rows), "type": "table", "data": rows})
+
+        elif detail_type == "subscribers":
+            rows = []
+            async with conn.execute("""
+                SELECT telegram_id, name, expiry_ts, expiry_hijri, total_hw_solved, free_attempts
+                FROM users WHERE expiry_ts > ? ORDER BY expiry_ts ASC
+            """, (now_ts,)) as c:
+                async for row in c:
+                    try: days_left = int((float(row[2]) - now_ts) / 86400) if row[2] else 0
+                    except: days_left = 0
+                    rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "expiry": row[3] or '—',
+                                 "days_left": days_left, "hw": row[4] or 0, "free": row[5] or 0})
+            return JSONResponse({"title": "👑 المشتركون", "count": len(rows), "type": "subscribers", "data": rows})
+
+        elif detail_type == "finished-free":
+            rows = []
+            async with conn.execute("""
+                SELECT telegram_id, name, total_hw_solved, last_active
+                FROM users WHERE (free_attempts = 0 OR free_attempts IS NULL) AND (expiry_ts IS NULL OR expiry_ts < ?)
+                ORDER BY last_active DESC LIMIT 100
+            """, (now_ts,)) as c:
+                async for row in c:
+                    la = ""
+                    if row[3]:
+                        try: la = datetime.fromtimestamp(float(row[3])).strftime('%Y-%m-%d %H:%M')
+                        except: la = "—"
+                    rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "hw": row[2] or 0, "last_active": la})
+            return JSONResponse({"title": "⛔ خلصت مجانيهم", "count": len(rows), "type": "table", "data": rows})
+
+        elif detail_type == "remaining-free":
+            rows = []
+            async with conn.execute("""
+                SELECT telegram_id, name, free_attempts, total_hw_solved, last_active
+                FROM users WHERE free_attempts > 0 ORDER BY free_attempts DESC LIMIT 100
+            """) as c:
+                async for row in c:
+                    la = ""
+                    if row[4]:
+                        try: la = datetime.fromtimestamp(float(row[4])).strftime('%Y-%m-%d %H:%M')
+                        except: la = "—"
+                    rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "free": row[2] or 0,
+                                 "hw": row[3] or 0, "last_active": la})
+            return JSONResponse({"title": "🎁 لسه عندهم مجاني", "count": len(rows), "type": "table", "data": rows})
+
+        elif detail_type == "total-hw":
+            rows = []
+            async with conn.execute("""
+                SELECT user_id, subject, total_questions, correct_answers, wrong_answers, status, start_time, end_time
+                FROM homework_sessions WHERE status = 'completed' ORDER BY end_time DESC LIMIT 50
+            """) as c:
+                async for row in c:
+                    user = await db_get_user(row[0])
+                    pct = round(row[3] / row[2] * 100) if row[2] else 0
+                    duration = ""
+                    if row[6] and row[7]:
+                        try: duration = f"{int((row[7] - row[6]) / 60)} دقيقة"
+                        except: pass
+                    rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
+                                 "user_id": row[0], "subject": row[1] or '—', "total": row[2] or 0,
+                                 "correct": row[3] or 0, "wrong": row[4] or 0, "pct": pct, "duration": duration})
+            return JSONResponse({"title": "📚 إجمالي الواجبات", "count": len(rows), "type": "homeworks", "data": rows})
+
+        elif detail_type == "total-questions":
+            rows = []
+            async with conn.execute("""
+                SELECT user_id, event_name, details, created_at FROM event_logs
+                WHERE event_type = 'QUESTION_SOLVED' ORDER BY created_at DESC LIMIT 50
+            """) as c:
+                async for row in c:
+                    details = json.loads(row[2]) if row[2] else {}
+                    user = await db_get_user(row[0])
+                    rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
+                                 "user_id": row[0], "subject": details.get('subject', 'غير معروف'),
+                                 "question": details.get('question', 'سؤال')[:60],
+                                 "source": (row[1] or 'db').lower(),
+                                 "time": datetime.fromtimestamp(row[3]).strftime('%Y-%m-%d %H:%M')})
+            return JSONResponse({"title": "📝 إجمالي الأسئلة", "count": len(rows), "type": "questions", "data": rows})
+
+        elif detail_type == "correct":
+            rows = []
+            async with conn.execute("""
+                SELECT h.user_id, h.subject, h.correct_answers, h.total_questions, h.end_time
+                FROM homework_sessions h WHERE h.status = 'completed' AND h.correct_answers > 0
+                ORDER BY h.end_time DESC LIMIT 50
+            """) as c:
+                async for row in c:
+                    user = await db_get_user(row[0])
+                    rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
+                                 "subject": row[1] or '—', "correct": row[2] or 0, "total": row[3] or 0})
+            return JSONResponse({"title": "✅ إجابات صحيحة", "count": len(rows), "type": "table", "data": rows})
+
+        elif detail_type == "wrong":
+            rows = []
+            async with conn.execute("""
+                SELECT h.user_id, h.subject, h.wrong_answers, h.total_questions, h.end_time
+                FROM homework_sessions h WHERE h.status = 'completed' AND h.wrong_answers > 0
+                ORDER BY h.wrong_answers DESC LIMIT 50
+            """) as c:
+                async for row in c:
+                    user = await db_get_user(row[0])
+                    rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
+                                 "subject": row[1] or '—', "wrong": row[2] or 0, "total": row[3] or 0})
+            return JSONResponse({"title": "❌ إجابات خاطئة", "count": len(rows), "type": "table", "data": rows})
+
+        elif detail_type == "gemini":
+            rows = []
+            async with conn.execute("""
+                SELECT user_id, details, created_at FROM event_logs
+                WHERE event_name = 'GEMINI' AND event_type = 'QUESTION_SOLVED'
+                ORDER BY created_at DESC LIMIT 50
+            """) as c:
+                async for row in c:
+                    details = json.loads(row[1]) if row[1] else {}
+                    user = await db_get_user(row[0])
+                    rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
+                                 "user_id": row[0], "subject": details.get('subject', 'غير معروف'),
+                                 "question": details.get('question', 'سؤال'),
+                                 "time": datetime.fromtimestamp(row[2]).strftime('%Y-%m-%d %H:%M:%S')})
+            return JSONResponse({"title": "✨ Gemini", "count": len(rows), "type": "questions", "data": rows})
+
+        elif detail_type == "random":
+            rows = []
+            async with conn.execute("""
+                SELECT user_id, details, created_at FROM event_logs
+                WHERE event_name = 'RANDOM' AND event_type = 'QUESTION_SOLVED'
+                ORDER BY created_at DESC LIMIT 50
+            """) as c:
+                async for row in c:
+                    details = json.loads(row[1]) if row[1] else {}
+                    user = await db_get_user(row[0])
+                    rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
+                                 "user_id": row[0], "subject": details.get('subject', 'غير معروف'),
+                                 "question": details.get('question', 'سؤال'),
+                                 "time": datetime.fromtimestamp(row[2]).strftime('%Y-%m-%d %H:%M:%S')})
+            return JSONResponse({"title": "🎲 حل عشوائي", "count": len(rows), "type": "questions", "data": rows})
+
+        elif detail_type == "errors":
+            rows = []
+            async with conn.execute("""
+                SELECT user_id, event_name, error_message, created_at FROM event_logs
+                WHERE success = 0 AND error_message IS NOT NULL
+                ORDER BY created_at DESC LIMIT 50
+            """) as c:
+                async for row in c:
+                    rows.append({"user_id": row[0], "event": row[1],
+                                 "message": row[2][:80] if row[2] else '—',
+                                 "time": datetime.fromtimestamp(row[3]).strftime('%Y-%m-%d %H:%M:%S')})
+            return JSONResponse({"title": "⚠️ الأخطاء", "count": len(rows), "type": "errors", "data": rows})
+
+        elif detail_type == "system":
+            try:
+                import psutil
+                cpu = psutil.cpu_percent(interval=0.5)
+                mem = psutil.virtual_memory()
+                disk = psutil.disk_usage('/')
+                data = {
+                    "cpu_percent": cpu,
+                    "cpu_cores": psutil.cpu_count(),
+                    "mem_percent": mem.percent,
+                    "mem_used_gb": round(mem.used / (1024**3), 1),
+                    "mem_total_gb": round(mem.total / (1024**3), 1),
+                    "disk_percent": disk.percent,
+                    "disk_used_gb": round(disk.used / (1024**3), 1),
+                    "disk_total_gb": round(disk.total / (1024**3), 1),
+                    "active_sessions": len(active_sessions),
+                }
+            except ImportError:
+                data = {"error": "psutil not installed"}
+            return JSONResponse({"title": "💻 معلومات النظام", "count": 0, "type": "system", "data": data})
+
+        else:
+            return JSONResponse({"error": "نوع غير معروف"}, status_code=400)
+
+    except Exception as e:
+        admin_trace("DETAIL_ERR", f"{detail_type}: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/test-db")
+async def test_database(request: Request, _user: str = Depends(require_auth)):
+    result = {
+        "status": "unknown",
+        "db_path": str(config.db_file),
+        "db_exists": os.path.exists(config.db_file),
+    }
+    if result["db_exists"]:
+        result["db_size_kb"] = round(os.path.getsize(config.db_file) / 1024, 2)
+    try:
+        conn = await _db_pool.get_connection()
+        async with conn.execute("SELECT COUNT(*) FROM users") as c:
+            result["users_count"] = (await c.fetchone())[0] or 0
+            result["status"] = "connected"
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+    return JSONResponse(result)
+
+
+# ==============================================================================
+# WebSocket
+# ==============================================================================
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await get_dashboard_data()
+            try:
+                await websocket.send_json(data)
+            except Exception:
+                # العميل انقطع — أخرج من الحلقة بهدوء
+                break
+            await asyncio.sleep(3)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        admin_trace("WEBSOCKET_ERR", str(e))
+    finally:
+        manager.disconnect(websocket)
+
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+
+async def is_subscribed(uid: int) -> bool:
+    if uid == config.admin_id:
+        return True
+    user = await db_get_user(uid)
+    if not user:
+        return False
+    try:
+        expiry = user.get("expiry_ts")
+        if expiry:
+            return time.time() < float(expiry)
+    except (ValueError, TypeError):
+        pass
+    return False
+
+
+async def get_recent_questions(limit: int = 10):
+    try:
+        conn = await _db_pool.get_connection()
+        questions = []
+        async with conn.execute("""
+            SELECT user_id, event_name, details, created_at FROM event_logs
+            WHERE event_type = 'QUESTION_SOLVED'
+            ORDER BY created_at DESC LIMIT ?
+        """, (limit,)) as c:
+            async for row in c:
+                user_id, event_name, details_json, created_at = row
+                details = json.loads(details_json) if details_json else {}
+                user = await db_get_user(user_id)
+                questions.append({
+                    "text": details.get('question', 'سؤال')[:50] + "...",
+                    "user": user.get('name', str(user_id)) if user else str(user_id),
+                    "subject": details.get('subject', 'غير معروف'),
+                    "answer": "✓",
+                    "source": (event_name or 'db').lower(),
+                    "time": datetime.fromtimestamp(created_at).strftime('%H:%M:%S')
+                })
+        return questions
+    except Exception as e:
+        admin_trace("QUESTIONS_FETCH", str(e))
+        return []
+
+
+async def get_recent_errors(limit: int = 10):
+    try:
+        conn = await _db_pool.get_connection()
+        errors = []
+        async with conn.execute("""
+            SELECT user_id, event_name, error_message, created_at FROM event_logs
+            WHERE success = 0 AND error_message IS NOT NULL
+            ORDER BY created_at DESC LIMIT ?
+        """, (limit,)) as c:
+            async for row in c:
+                errors.append({
+                    "user_id": row[0],
+                    "event": row[1],
+                    "message": (row[2][:50] + "...") if row[2] and len(row[2]) > 50 else (row[2] or ''),
+                    "time": datetime.fromtimestamp(row[3]).strftime('%H:%M:%S')
+                })
+        return errors
+    except Exception as e:
+        admin_trace("ERRORS_FETCH", str(e))
+        return []
+
+
+# ==============================================================================
+# Dashboard Data Aggregator
+# ==============================================================================
+
+# ✅ L1 Cache — لتخفيف الحمل عن DB (WebSocket يسأل كل 3s)
+_DASHBOARD_CACHE = {"data": None, "ts": 0.0}
+_DASHBOARD_TTL = config.dashboard_cache_ttl
+
+async def get_dashboard_data():
+    # ✅ L1 TTL Cache: WebSocket يستدعي كل 3 ثوانٍ — نخفف الحمل
+    global _DASHBOARD_CACHE
+    now = time.time()
+    if _DASHBOARD_CACHE["data"] is not None and (now - _DASHBOARD_CACHE["ts"]) < _DASHBOARD_TTL:
+        return _DASHBOARD_CACHE["data"]
+
+    try:
+        conn = await _db_pool.get_connection()
+        now_ts = time.time()
+        today_start = now_ts - (now_ts % 86400)
+        five_min_ago = now_ts - 300
+
+        # Users stats
+        async with conn.execute("SELECT COUNT(*) FROM users") as c:
+            total_users = (await c.fetchone())[0] or 0
+        async with conn.execute("SELECT COUNT(*) FROM users WHERE last_active > ?", (five_min_ago,)) as c:
+            active_now_db = (await c.fetchone())[0] or 0
+        async with conn.execute("SELECT COUNT(*) FROM users WHERE last_active > ?", (today_start,)) as c:
+            active_today = (await c.fetchone())[0] or 0
+        async with conn.execute("SELECT COUNT(*) FROM users WHERE expiry_ts > ?", (now_ts,)) as c:
+            subscribers = (await c.fetchone())[0] or 0
+        async with conn.execute("""
+            SELECT COUNT(*) FROM users
+            WHERE (free_attempts = 0 OR free_attempts IS NULL) AND (expiry_ts IS NULL OR expiry_ts < ?)
+        """, (now_ts,)) as c:
+            finished_free = (await c.fetchone())[0] or 0
+        async with conn.execute("SELECT SUM(free_attempts) FROM users WHERE free_attempts > 0") as c:
+            remaining_free = (await c.fetchone())[0] or 0
+        async with conn.execute("SELECT SUM(total_hw_solved) FROM users") as c:
+            total_hw = (await c.fetchone())[0] or 0
+
+        # Homework sessions
+        async with conn.execute("""
+            SELECT SUM(solved_questions), SUM(correct_answers), SUM(wrong_answers)
+            FROM homework_sessions WHERE status = 'completed'
+        """) as c:
+            row = await c.fetchone()
+            total_questions_solved = (row[0] or 0) if row else 0
+            total_correct = (row[1] or 0) if row else 0
+            total_wrong = (row[2] or 0) if row else 0
+
+        # Solved questions sources
+        try:
+            async with conn.execute("SELECT COUNT(*) FROM solved_questions") as c:
+                total_questions = (await c.fetchone())[0] or 0
+            async with conn.execute("SELECT COUNT(*) FROM solved_questions WHERE source = 'db'") as c:
+                db_hits = (await c.fetchone())[0] or 0
+            async with conn.execute("SELECT COUNT(*) FROM solved_questions WHERE source = 'groq'") as c:
+                groq = (await c.fetchone())[0] or 0
+            async with conn.execute("SELECT COUNT(*) FROM solved_questions WHERE source = 'gemini'") as c:
+                gemini = (await c.fetchone())[0] or 0
+            async with conn.execute("SELECT COUNT(*) FROM solved_questions WHERE source = 'random'") as c:
+                random_count = (await c.fetchone())[0] or 0
+        except Exception:
+            total_questions = db_hits = groq = gemini = random_count = 0
+
+        # Errors
+        async with conn.execute("SELECT COUNT(*) FROM event_logs WHERE success = 0") as c:
+            total_errors = (await c.fetchone())[0] or 0
+
+        # Recent data
+        recent_questions = await get_recent_questions(10)
+        recent_errors = await get_recent_errors(10)
+
+        # Active sessions
+        active_users = []
+        for uid, session in active_sessions.items():
+            user = await db_get_user(uid)
+            if user:
+                if getattr(session, 'is_paused', False):
+                    st, stc = "⏸ متوقف", "warning"
+                    act = f"متوقف (واجب {getattr(session,'stats',{}).get('total_hw',0)})"
+                elif getattr(session, 'is_running', False):
+                    st, stc = "▶️ يحل", "success"
+                    act = f"يحل واجب {getattr(session,'stats',{}).get('total_hw',0)} | أسئلة {getattr(session,'stats',{}).get('solved_q',0)}"
+                else:
+                    st, stc = "🟢 متصل", "info"
+                    act = "متصل"
+                active_users.append({
+                    "id": uid, "name": user.get('name', f'User {uid}'),
+                    "status": st, "status_class": stc,
+                    "current_action": act, "time": "الآن", "details": {}
+                })
+
+        # Subscriptions
+        subscriptions = []
+        async with conn.execute("""
+            SELECT telegram_id, name, expiry_ts, expiry_hijri, total_hw_solved
+            FROM users WHERE expiry_ts > ? ORDER BY expiry_ts ASC LIMIT 20
+        """, (now_ts,)) as c:
+            async for row in c:
+                try:
+                    days_left = int((float(row[2]) - now_ts) / 86400) if row[2] else 0
+                except (ValueError, TypeError):
+                    days_left = 0
+                subscriptions.append({
+                    "id": row[0], "name": row[1] or f"ID: {row[0]}",
+                    "expiry": row[3] or '—', "days_left": days_left, "total_hw": row[4] or 0
+                })
+
+        # All users
+        users = []
+        async with conn.execute("""
+            SELECT telegram_id, name, tg_username, dars360_user,
+                   expiry_ts, expiry_hijri, free_attempts, total_hw_solved,
+                   rank_title, last_active, created_at
+            FROM users ORDER BY created_at DESC LIMIT 50
+        """) as c:
+            async for row in c:
+                try:
+                    is_sub = float(row[4]) > now_ts if row[4] else False
+                except (ValueError, TypeError):
+                    is_sub = False
+                la = ""
+                if row[9]:
+                    try: la = datetime.fromtimestamp(float(row[9])).strftime('%H:%M')
+                    except: la = "—"
+                users.append({
+                    "id": row[0], "name": row[1] or f"User {row[0]}",
+                    "tg_username": row[2] or '—', "platform_user": row[3] or '—',
+                    "is_subscribed": is_sub, "expiry": row[5] or '—',
+                    "free_attempts": row[6] or 0, "total_hw": row[7] or 0,
+                    "rank_title": row[8] or '🥉 طالب جديد',
+                    "last_active": la, "is_online": row[0] in active_sessions
+                })
+
+        # System metrics
+        try:
+            import psutil
+            cpu = psutil.cpu_percent()
+            memory = psutil.virtual_memory().percent
+        except ImportError:
+            cpu = memory = 0
+
+        # Activity chart (24h)
+        activity_labels, activity_data = [], []
+        for i in range(24):
+            h_start = now_ts - (i * 3600)
+            h_end = h_start + 3600
+            async with conn.execute("""
+                SELECT COUNT(DISTINCT user_id) FROM event_logs WHERE created_at BETWEEN ? AND ?
+            """, (h_start, h_end)) as c:
+                cnt = (await c.fetchone())[0] or 0
+                activity_labels.insert(0, f"{23-i}:00")
+                activity_data.insert(0, cnt)
+
+        result = {
+            "stats": {
+                "total_users": total_users, "active_now": len(active_sessions),
+                "active_today": active_today, "subscribers": subscribers,
+                "finished_free": finished_free, "remaining_free": remaining_free,
+                "total_hw": total_hw, "total_questions_solved": total_questions_solved,
+                "total_questions": total_questions, "total_correct": total_correct,
+                "total_wrong": total_wrong, "total_errors": total_errors,
+                "db_hits": db_hits, "groq": groq, "gemini": gemini,
+                "random": random_count, "cpu": cpu, "memory": memory
+            },
+            "api_stats": {"groq": groq, "gemini": gemini, "db_hits": db_hits, "random": random_count},
+            "users": users, "active_users": active_users,
+            "recent_questions": recent_questions, "recent_errors": recent_errors,
+            "subscriptions": subscriptions,
+            "activity_labels": activity_labels, "activity_data": activity_data
+        }
+        # ✅ حفظ في الـ cache
+        _DASHBOARD_CACHE["data"] = result
+        _DASHBOARD_CACHE["ts"] = time.time()
+        return result
+
+    except Exception as e:
+        admin_trace("DASHBOARD_ERR", str(e))
+        result = {
+            "stats": {
+                "total_users":0,"active_now":0,"active_today":0,"subscribers":0,
+                "finished_free":0,"remaining_free":0,"total_hw":0,"total_questions_solved":0,
+                "total_questions":0,"total_correct":0,"total_wrong":0,"total_errors":0,
+                "db_hits":0,"groq":0,"gemini":0,"random":0,"cpu":0,"memory":0
+            },
+            "api_stats":{"groq":0,"gemini":0,"db_hits":0,"random":0},
+            "users":[],"active_users":[],"recent_questions":[],"recent_errors":[],
+            "subscriptions":[],"activity_labels":[],"activity_data":[]
+        }
+        # ❌ لا نخزّن الفشل في الـ cache
+        return result
+
+
+# ==============================================================================
+# Entrypoint
+# ==============================================================================
+
+def find_working_port(preferred_port: int, fallbacks: Optional[List[int]] = None) -> int:
+    """
+    يجد منفذاً متاحاً للـ dashboard.
+    يفضّل المنفذ المطلوب، لكن لو محجوز (Windows permission أو مشغول)
+    يجرب المنافذ البديلة.
+    """
+    if fallbacks is None:
+        fallbacks = [8765, 9876, 9999, 15000, 18000]
+
+    candidates = [preferred_port] + [p for p in fallbacks if p != preferred_port]
+
+    for port in candidates:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.3)
+        try:
+            # نتأكد أولاً إن المنفذ مشغول أصلاً
+            in_use = sock.connect_ex(("127.0.0.1", port)) == 0
+            if in_use:
+                # في عملية أخرى تخدم — لا نستعمله (خلّيها ترجع)
+                continue
+        except Exception:
+            pass
+        finally:
+            sock.close()
+
+        # نجرّب الربط الفعلي — هذا اللي يكشف WinError 10013
+        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_sock.settimeout(0.3)
+        try:
+            test_sock.bind(("127.0.0.1", port))
+            test_sock.close()
+            if port != preferred_port:
+                print(f"⚠️ المنفذ {preferred_port} محجوز، تم التحويل إلى {port}")
+            return port
+        except (OSError, PermissionError):
+            # المنفذ محجوز — جرّب التالي
+            continue
+        finally:
+            try:
+                test_sock.close()
+            except Exception:
+                pass
+
+    # ما لقينا ولا منفذ — نرجّع المفضّل وندع البوت يحاول ويسجل الخطأ
+    print(f"❌ لم يُعثر على منفذ متاح (جرّبنا: {candidates})")
+    return preferred_port
+
+
+def start_dashboard():
+    port = find_working_port(config.dashboard_port)
+    print(f"🌐 Dashboard starting on http://127.0.0.1:{port}")
+    uvicorn.run(app, host="127.0.0.1", port=port)
+
+if __name__ == "__main__":
+    start_dashboard()
