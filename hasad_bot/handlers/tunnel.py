@@ -29,7 +29,6 @@ from hasad_bot.database import is_admin
 
 TUNNEL_PORT = config.dashboard_port
 TUNNEL_URL_PATTERN = r'https?://[a-zA-Z0-9\-]+\.trycloudflare\.com'
-ADMIN_ID = 7606170063
 
 
 # ==============================================================================

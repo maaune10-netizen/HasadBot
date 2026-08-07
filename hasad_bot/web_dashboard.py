@@ -1597,7 +1597,7 @@ async def api_me(request: Request):
         "username": payload.get("sub"),
         "issued_at": payload.get("iat"),
         "expires_at": payload.get("exp"),
-        "absolute_exp": payload.get("exp_abs"),
+        "absolute_exp": payload.get("abs_exp"),
     }
 
 

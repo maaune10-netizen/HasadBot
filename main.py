@@ -332,15 +332,15 @@ async def post_init(application: Application):
     from hasad_bot.database import collect_and_save_dashboard_stats
 
     async def update_dashboard_stats_job(context: ContextTypes.DEFAULT_TYPE):
-        """تحديث إحصائيات الداشبورد كل 3 ثواني"""
+        """تحديث إحصائيات الداشبورد كل 15 ثواني"""
         await collect_and_save_dashboard_stats()
 
 # بعد تهيئة كل شيء
     job_queue = application.job_queue
     if job_queue:
     # run_repeating(الدالة, الفاصل_بالثواني, first=التأخير_قبل_أول_تشغيل)
-        job_queue.run_repeating(update_dashboard_stats_job, interval=3, first=3)
-        logger.info("📊 Dashboard stats job started (every 3 seconds)")
+        job_queue.run_repeating(update_dashboard_stats_job, interval=15, first=3)
+        logger.info("📊 Dashboard stats job started (every 15 seconds)")
 
         # ============================================================
         # 📢 إعلانات متكررة ومستهدفة (Marketing Automation)
@@ -1566,7 +1566,7 @@ async def send_encrypted_file(bot, chat_id: int, file_path: Path, caption: str, 
                 chat_id=chat_id,
                 document=f,
                 filename=zip_filename,  # ✅ اسم واضح ومنظم
-                caption=f"🔒 **{caption}**\n🔐 **محمي بكلمة مرور**\n📅 {now_hijri()}\n\n📌 **كلمة المرور:** ``",
+                caption=f"🔒 **{caption}**\n🔐 **محمي بكلمة مرور**\n📅 {now_hijri()}\n\n📌 **كلمة المرور:** `{password}`",
                 parse_mode="Markdown"
             )
             

@@ -212,9 +212,10 @@ python -m pytest tests/test_resilience.py -q
 
 ## 12. Known Issues & Landmines (verified 2026-08-07)
 
+**Fixed in the A-series (2026-08-07, commit A-series):** `idx_exam_cache` line removed — the `UNIQUE(exam_id, question_number)` constraint already auto-indexes it; `/api/me` `exp_abs` → `abs_exp`; dashboard stats job 3s → 15s; `tunnel.py` hard-coded `ADMIN_ID` deleted (was dead); `colorama` + `starlette` pin added to `requirements.txt`; `send_encrypted_file` caption fixed; `row_factory` set once at connection creation.
+
 **Still broken / open (from `docs/AUDIT_2026-06-07.md`, re-verified):**
-- `database/pool.py`: `idx_exam_cache` indexes `question_num` but the column is `question_number` → index creation fails silently on every fresh DB.
-- `web_dashboard.py`: `/api/me` `exp_abs` vs `abs_exp` (H1); `/ws` unauthenticated (H9); `str(e)` leaked to clients (H7); decrypted passwords to browser (H8); two `set_cookie` paths (H2).
+- `web_dashboard.py`: `/ws` unauthenticated (H9); `str(e)` leaked to clients (H7); decrypted passwords to browser (H8); two `set_cookie` paths (H2).
 - `handlers/tunnel.py:32`: hard-coded `ADMIN_ID = 7606170063` — **overrides env** `ADMIN_ID` (7286004246) as "the admin" in tunnel handlers; 3 sources of truth for admin ID.
 - `utils.encrypt_password` = XOR + base64 with a separate 32-byte key file — obfuscation, not encryption.
 - `colorama` missing from `requirements.txt`; `send_encrypted_file` caption f-string truncated; CLI `send_db_backup` uses plain zip while channel `DB` command uses AES zip.
