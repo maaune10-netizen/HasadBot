@@ -34,6 +34,7 @@ from hasad_bot.admin_ops import (
     add_homework_credit,
     unlock_user,
     delete_user,
+    send_broadcast,
 )
 from hasad_bot.database import (
     _db_pool,
@@ -284,33 +285,35 @@ async def admin_broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYP
     sent = 0
     failed = 0
 
-    for user_id in users:
-        try:
-            if has_photo:
-                await context.bot.send_photo(
-                    chat_id=user_id,
-                    photo=photo_id,
-                    caption=f"📢 <b>رسالة من الإدارة</b>\n\n{caption}" if caption else "📢 رسالة من الإدارة",
-                    parse_mode="HTML"
-                )
-            elif has_document:
-                await context.bot.send_document(
-                    chat_id=user_id,
-                    document=doc_id,
-                    caption=f"📢 <b>رسالة من الإدارة</b>\n\n{caption}" if caption else "📢 رسالة من الإدارة",
-                    parse_mode="HTML"
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text=f"📢 <b>رسالة من الإدارة</b>\n\n{text}",
-                    parse_mode="HTML"
-                )
-            sent += 1
-            await asyncio.sleep(0.05)  # تجنب الـ Flood wait
-        except Exception as e:
-            failed += 1
-            logger.error(f"Failed to send to {user_id}: {e}")
+    if has_photo or has_document:
+        for user_id in users:
+            try:
+                if has_photo:
+                    await context.bot.send_photo(
+                        chat_id=user_id,
+                        photo=photo_id,
+                        caption=f"📢 <b>رسالة من الإدارة</b>\n\n{caption}" if caption else "📢 رسالة من الإدارة",
+                        parse_mode="HTML"
+                    )
+                elif has_document:
+                    await context.bot.send_document(
+                        chat_id=user_id,
+                        document=doc_id,
+                        caption=f"📢 <b>رسالة من الإدارة</b>\n\n{caption}" if caption else "📢 رسالة من الإدارة",
+                        parse_mode="HTML"
+                    )
+                sent += 1
+                await asyncio.sleep(0.05)  # تجنب الـ Flood wait
+            except Exception as e:
+                failed += 1
+                logger.error(f"Failed to send to {user_id}: {e}")
+
+        skipped = 0
+    else:
+        result = await send_broadcast(context.bot, target, text, actor="telegram")
+        sent = result.get("sent", 0)
+        failed = result.get("failed", 0)
+        skipped = result.get("skipped", 0)
 
     # تنظيف البيانات
     context.user_data.pop("broadcast_target", None)
@@ -323,12 +326,17 @@ async def admin_broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYP
         pass
 
     # ✅ إرسال التقرير النهائي
-    await update.message.reply_text(
+    report = (
         f"✅ <b>تم الإرسال!</b>\n\n"
         f"📌 الفئة: {target_name}\n"
         f"✅ نجح: {sent}\n"
         f"❌ فشل: {failed}\n"
-        f"📅 {now_hijri()}",
+    )
+    if skipped > 0:
+        report += f"⏭️ تخطي: {skipped}\n"
+    report += f"📅 {now_hijri()}"
+    await update.message.reply_text(
+        report,
         parse_mode="HTML",
         reply_markup=kb_admin()
     )

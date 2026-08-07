@@ -867,6 +867,9 @@ DASHBOARD_PAGE = """
                     <button class="tab-btn" data-tab="payments" onclick="showTab('payments',this)">
                         <span>💳</span><span class="hide-mobile">طلبات الدفع</span>
                     </button>
+                    <button class="tab-btn" data-tab="messaging" onclick="showTab('messaging',this)">
+                        <span>📢</span><span class="hide-mobile">البث والإعلانات</span>
+                    </button>
                 </div>
 
                 <div class="tab-content">
@@ -1020,6 +1023,53 @@ DASHBOARD_PAGE = """
                                 <tbody id="payments-body"></tbody>
                             </table>
                         </div>
+                    </div>
+
+                    <!-- Messaging Tab -->
+                    <div class="tab-pane" id="tab-messaging">
+                        <div class="section-header">📢 البث والإعلانات</div>
+                        <div id="messaging-msg" class="action-msg" style="display:none"></div>
+
+                        <!-- Broadcast Section -->
+                        <div class="action-panel">
+                            <div class="action-panel-title">📤 إرسال بث جماعي</div>
+                            <div class="action-panel-row">
+                                <label for="broadcast-target">الفئة المستهدفة:</label>
+                                <select id="broadcast-target" class="filter-select" onchange="loadBroadcastPreview()">
+                                    <option value="all">🌍 الكل</option>
+                                    <option value="subscribed">💎 المشتركين</option>
+                                    <option value="not_subscribed">❌ غير المشتركين</option>
+                                    <option value="linked">🔗 مرتبط المنصة</option>
+                                    <option value="not_linked">🚫 غير مرتبط</option>
+                                </select>
+                            </div>
+                            <div id="broadcast-preview" style="margin-bottom:10px"></div>
+                            <textarea id="broadcast-text" class="day-custom" style="width:100%;min-height:110px;box-sizing:border-box" placeholder="اكتب رسالة البث هنا... (يدعم HTML)"></textarea>
+                            <div class="action-panel-btns">
+                                <button class="action-btn action-btn-info" onclick="previewBroadcastMessage()">👁️ معاينة</button>
+                                <button class="action-btn action-btn-primary" onclick="confirmBroadcastSend()">📤 إرسال البث</button>
+                            </div>
+                            <div id="broadcast-preview-box" style="display:none"></div>
+                        </div>
+                        <div id="broadcast-progress" style="display:none"></div>
+
+                        <!-- Announcements Section -->
+                        <div class="section-header">📣 الإعلانات المبرمجة</div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>النوع</th>
+                                        <th>الفلتر</th>
+                                        <th>الموعد</th>
+                                        <th>الحالة</th>
+                                        <th>إجراءات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="announcements-body"></tbody>
+                            </table>
+                        </div>
+                        <div id="announcements-progress" style="display:none"></div>
                     </div>
                 </div>
             </div>
@@ -1354,6 +1404,7 @@ DASHBOARD_PAGE = """
         document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
         document.getElementById('tab-'+name)?.classList.add('active');
         if (name === 'payments') loadPaymentRequests();
+        if (name === 'messaging') loadMessaging();
     }
 
     /* ===== Modal ===== */
@@ -1817,6 +1868,391 @@ DASHBOARD_PAGE = """
 
     function closePaymentPanel() {
         document.getElementById('payments-panel').innerHTML = '';
+    }
+
+    /* ===== Messaging: Broadcast + Announcements ===== */
+    let broadcastCount = 0;
+    let announcementsData = [];
+    let messagingPollTimer = null;
+
+    function setMessagingMsg(text, isError) {
+        const el = document.getElementById('messaging-msg');
+        if (!el) return;
+        if (text) {
+            el.textContent = text;
+            el.className = 'action-msg ' + (isError ? 'action-msg-error' : 'action-msg-success');
+            el.style.display = '';
+        } else {
+            el.textContent = '';
+            el.className = 'action-msg';
+            el.style.display = 'none';
+        }
+    }
+
+    function loadMessaging() {
+        loadBroadcastPreview();
+        loadAnnouncements();
+    }
+
+    async function loadBroadcastPreview() {
+        const v = document.getElementById('broadcast-target').value;
+        const box = document.getElementById('broadcast-preview');
+        box.innerHTML = '<span style="color:var(--text-muted);font-size:0.85em">⏳ جاري حساب المستهدفين...</span>';
+        try {
+            const res = await fetch('/api/admin/broadcast/preview?target=' + encodeURIComponent(v));
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                box.innerHTML = '<span class="action-msg action-msg-error" style="display:inline-block">⚠️ ' + esc(data.message || data.error) + '</span>';
+                broadcastCount = 0;
+                return;
+            }
+            broadcastCount = data.count || 0;
+            const names = (data.sample || []).map(n => esc(n)).join('، ');
+            box.innerHTML = '<div style="font-weight:600;margin-bottom:4px">👥 عدد المستهدفين: <b>' + broadcastCount + '</b></div>' +
+                (names ? '<div style="color:var(--text-muted);font-size:0.82em">' + names + '</div>' : '');
+        } catch(err) {
+            box.innerHTML = '<span style="color:var(--text-muted);font-size:0.85em">⚠️ تعذر حساب المستهدفين</span>';
+        }
+    }
+
+    function previewBroadcastMessage() {
+        const text = document.getElementById('broadcast-text').value.trim();
+        const box = document.getElementById('broadcast-preview-box');
+        if (!text) { setMessagingMsg('⚠️ اكتب رسالة البث أولاً', true); return; }
+        box.style.display = '';
+        box.innerHTML = '<div class="action-panel">' +
+            '<div class="action-panel-title">👁️ معاينة الرسالة (ستُرسل كما هي)</div>' +
+            '<div style="background:var(--surface);border:1px dashed var(--primary-light);border-radius:var(--radius-sm);padding:12px">' + text + '</div>' +
+            '</div>';
+    }
+
+    async function confirmBroadcastSend() {
+        const text = document.getElementById('broadcast-text').value.trim();
+        if (!text) { setMessagingMsg('⚠️ اكتب رسالة البث أولاً', true); return; }
+        const sel = document.getElementById('broadcast-target');
+        const targetName = sel.options[sel.selectedIndex].text;
+        openModal('⏳ جاري التحضير...', '<div class="empty-state"><div class="text">جاري حساب عدد المستهدفين...</div></div>');
+        await loadBroadcastPreview();
+        openModal('📤 تأكيد إرسال البث', `
+            <div class="action-panel">
+                <div class="action-panel-title">📌 الفئة: ${esc(targetName)}</div>
+                <div>👥 عدد المستهدفين: <b>${broadcastCount}</b></div>
+            </div>
+            <div class="action-panel">
+                <div class="action-panel-title">💬 نص الرسالة</div>
+                <div style="background:var(--surface);border:1px dashed var(--primary-light);border-radius:var(--radius-sm);padding:12px">${text}</div>
+            </div>
+            <div class="action-panel-btns">
+                <button class="action-btn action-btn-primary" id="broadcast-confirm-btn" onclick="sendBroadcast()">تأكيد الإرسال</button>
+                <button class="action-btn action-btn-ghost" onclick="closeModal()">إلغاء</button>
+            </div>
+        `);
+    }
+
+    async function sendBroadcast() {
+        const btn = document.getElementById('broadcast-confirm-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ جاري الإرسال...';
+        try {
+            const res = await fetch('/api/admin/broadcast', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target: document.getElementById('broadcast-target').value, text: document.getElementById('broadcast-text').value.trim(), confirm: true })
+            });
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                setMessagingMsg('⚠️ ' + (data.message || data.error || 'فشل إرسال البث'), true);
+                btn.disabled = false;
+                btn.textContent = 'تأكيد الإرسال';
+                return;
+            }
+            closeModal();
+            showBroadcastProgress(data.job_id);
+        } catch(err) {
+            setMessagingMsg('⚠️ فشل الاتصال بالخادم', true);
+            btn.disabled = false;
+            btn.textContent = 'تأكيد الإرسال';
+        }
+    }
+
+    /* ===== Announcements ===== */
+    async function loadAnnouncements() {
+        const body = document.getElementById('announcements-body');
+        if (!body) return;
+        body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="text">⏳ جاري تحميل الإعلانات...</div></div></td></tr>';
+        try {
+            const res = await fetch('/api/admin/announcements');
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                setMessagingMsg('⚠️ ' + (data.message || data.error), true);
+                body.innerHTML = '';
+                return;
+            }
+            announcementsData = data.templates || [];
+            renderAnnouncements();
+        } catch(err) {
+            setMessagingMsg('⚠️ فشل تحميل الإعلانات', true);
+            body.innerHTML = '';
+        }
+    }
+
+    function renderAnnouncements() {
+        const body = document.getElementById('announcements-body');
+        if (!announcementsData.length) {
+            body.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="icon">📣</div><div class="text">لا توجد إعلانات</div></div></td></tr>';
+            return;
+        }
+        body.innerHTML = announcementsData.map(t => `
+            <tr>
+                <td style="font-weight:600">${esc(t.name_ar)}</td>
+                <td>${esc(t.target_filter || '—')}</td>
+                <td>${esc(t.schedule_time || '—')}</td>
+                <td><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em"><input type="checkbox" style="accent-color:var(--primary);width:16px;height:16px;cursor:pointer" ${t.enabled ? 'checked' : ''} onchange="toggleAnnouncement('${esc(String(t.type))}', this.checked)"><span class="badge ${t.enabled ? 'badge-success' : 'badge-danger'}">${t.enabled ? 'مفعل' : 'معطل'}</span></label></td>
+                <td>
+                    <button class="action-btn action-btn-info" onclick="previewAnnouncement('${esc(String(t.type))}')">👁️ معاينة</button>
+                    <button class="action-btn action-btn-warning" onclick="editAnnouncement('${esc(String(t.type))}')">✏️ تعديل</button>
+                    <button class="action-btn action-btn-primary" onclick="confirmAnnouncementSend('${esc(String(t.type))}')">📤 إرسال الآن</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function toggleAnnouncement(atype, enabled) {
+        try {
+            const res = await fetch('/api/admin/announcements/' + encodeURIComponent(atype) + '/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                setMessagingMsg('⚠️ ' + (data.message || data.error || 'فشل تحديث الحالة'), true);
+            } else {
+                setMessagingMsg('✅ تم تحديث الحالة', false);
+            }
+            loadAnnouncements();
+        } catch(err) {
+            setMessagingMsg('⚠️ فشل الاتصال بالخادم', true);
+            loadAnnouncements();
+        }
+    }
+
+    async function previewAnnouncement(atype) {
+        openModal('⏳ معاينة الإعلان...', '<div class="empty-state"><div class="text">جاري التحضير...</div></div>');
+        try {
+            const res = await fetch('/api/admin/announcements/' + encodeURIComponent(atype) + '/preview', { method: 'POST' });
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                openModal('👁️ معاينة الإعلان', '<div class="action-msg action-msg-error" style="display:block">⚠️ ' + esc(data.message || data.error) + '</div>');
+                return;
+            }
+            const count = data.count != null ? data.count : 0;
+            const html = `
+                <div class="action-panel">
+                    <div class="action-panel-title">📣 ${esc(data.name_ar || atype)}</div>
+                    <div>👥 عدد المستهدفين: <b>${count}</b></div>
+                </div>
+                <div class="action-panel">
+                    <div class="action-panel-title">👁️ عينة من الرسالة (${esc(data.sample_user_name || '—')})</div>
+                    <div style="background:var(--surface);border:1px dashed var(--primary-light);border-radius:var(--radius-sm);padding:12px">${data.sample_rendered || '<span style="color:var(--text-muted)">لا توجد عينة</span>'}</div>
+                </div>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-ghost" onclick="closeModal()">إغلاق</button>
+                </div>`;
+            openModal('👁️ معاينة الإعلان', html);
+        } catch(err) {
+            openModal('👁️ معاينة الإعلان', '<div class="empty-state"><div class="text">فشل جلب المعاينة</div></div>');
+        }
+    }
+
+    function editAnnouncement(atype) {
+        const t = (announcementsData || []).find(x => String(x.type) === String(atype));
+        const text = t ? (t.template_text || '') : '';
+        openModal('✏️ تعديل نص الإعلان', `
+            <div class="action-panel">
+                <div class="action-panel-title">📣 ${esc(t ? t.name_ar : atype)}</div>
+                <textarea id="announcement-edit-text" class="day-custom" style="width:100%;min-height:140px;box-sizing:border-box">${esc(text)}</textarea>
+            </div>
+            <div class="action-panel-btns">
+                <button class="action-btn action-btn-primary" id="announcement-edit-btn" onclick="saveAnnouncementText('${esc(String(atype))}')">حفظ التعديل</button>
+                <button class="action-btn action-btn-ghost" onclick="closeModal()">إلغاء</button>
+            </div>
+        `);
+    }
+
+    async function saveAnnouncementText(atype) {
+        const text = document.getElementById('announcement-edit-text').value.trim();
+        if (!text) { setMessagingMsg('⚠️ اكتب نص الإعلان', true); return; }
+        const btn = document.getElementById('announcement-edit-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ جاري الحفظ...';
+        try {
+            const res = await fetch('/api/admin/announcements/' + encodeURIComponent(atype) + '/text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                setMessagingMsg('⚠️ ' + (data.message || data.error || 'فشل حفظ النص'), true);
+                btn.disabled = false;
+                btn.textContent = 'حفظ التعديل';
+                return;
+            }
+            setMessagingMsg('✅ تم حفظ النص', false);
+            closeModal();
+            loadAnnouncements();
+        } catch(err) {
+            setMessagingMsg('⚠️ فشل الاتصال بالخادم', true);
+            btn.disabled = false;
+            btn.textContent = 'حفظ التعديل';
+        }
+    }
+
+    async function confirmAnnouncementSend(atype) {
+        openModal('⏳ جاري التحضير...', '<div class="empty-state"><div class="text">جاري حساب المستهدفين...</div></div>');
+        let count = 0;
+        let nameAr = atype;
+        try {
+            const res = await fetch('/api/admin/announcements/' + encodeURIComponent(atype) + '/preview', { method: 'POST' });
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                openModal('📤 إرسال الإعلان', '<div class="action-msg action-msg-error" style="display:block">⚠️ ' + esc(data.message || data.error) + '</div>');
+                return;
+            }
+            count = data.count != null ? data.count : 0;
+            nameAr = data.name_ar || atype;
+        } catch(err) {
+            // نكمل بدون العدد
+        }
+        openModal('📤 تأكيد إرسال الإعلان', `
+            <div class="action-panel">
+                <div class="action-panel-title">📣 ${esc(nameAr)}</div>
+                <div>👥 عدد المستهدفين: <b>${count}</b></div>
+            </div>
+            <div style="color:var(--text-muted);font-size:0.85em;margin-bottom:10px">سيتم إرسال الإعلان الآن لكل المستهدفين.</div>
+            <div class="action-panel-btns">
+                <button class="action-btn action-btn-primary" id="announcement-send-btn" onclick="sendAnnouncementNow('${esc(String(atype))}')">تأكيد الإرسال</button>
+                <button class="action-btn action-btn-ghost" onclick="closeModal()">إلغاء</button>
+            </div>
+        `);
+    }
+
+    async function sendAnnouncementNow(atype) {
+        const btn = document.getElementById('announcement-send-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ جاري الإرسال...';
+        try {
+            const res = await fetch('/api/admin/announcements/' + encodeURIComponent(atype) + '/send', { method: 'POST' });
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                setMessagingMsg('⚠️ ' + (data.message || data.error || 'فشل إرسال الإعلان'), true);
+                btn.disabled = false;
+                btn.textContent = 'تأكيد الإرسال';
+                return;
+            }
+            closeModal();
+            showAnnouncementProgress(data.job_id);
+        } catch(err) {
+            setMessagingMsg('⚠️ فشل الاتصال بالخادم', true);
+            btn.disabled = false;
+            btn.textContent = 'تأكيد الإرسال';
+        }
+    }
+
+    /* ===== Send Job Progress (shared: broadcast + announcements) ===== */
+    function pollSendJob(jobId, onProgress, onDone) {
+        if (messagingPollTimer) clearInterval(messagingPollTimer);
+        const tick = async () => {
+            let gone = false;
+            try {
+                const res = await fetch('/api/admin/broadcast/jobs/' + encodeURIComponent(jobId));
+                if (res.status === 404) {
+                    gone = true;
+                } else {
+                    const data = await res.json();
+                    if (data && (data.success === false || data.error)) {
+                        clearInterval(messagingPollTimer);
+                        if (typeof onDone === 'function') onDone({ error: data.message || data.error });
+                        return;
+                    }
+                    if (typeof onProgress === 'function') onProgress(data);
+                    if (data && data.status === 'done') {
+                        clearInterval(messagingPollTimer);
+                        if (typeof onDone === 'function') onDone(data);
+                    }
+                }
+                if (gone) {
+                    clearInterval(messagingPollTimer);
+                    if (typeof onDone === 'function') onDone({ gone: true });
+                }
+            } catch(err) {
+                // تعثر شبكة مؤقت — نعيد المحاولة في الدورة القادمة
+            }
+        };
+        messagingPollTimer = setInterval(tick, 1500);
+        tick();
+    }
+
+    function progressBarHtml(pct, color) {
+        return '<div style="background:var(--border);border-radius:10px;height:10px;overflow:hidden;margin-bottom:8px">' +
+            '<div style="background:' + (color || 'var(--primary)') + ';height:100%;width:' + pct + '%;transition:width .3s"></div></div>';
+    }
+
+    function renderJobProgress(job, box) {
+        const total = job.total || 0;
+        const done = (job.sent || 0) + (job.failed || 0) + (job.skipped || 0);
+        const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+        box.innerHTML = '<div class="action-panel">' +
+            '<div class="action-panel-title">⏳ جاري الإرسال... (' + pct + '%)</div>' +
+            progressBarHtml(pct) +
+            '<div style="font-size:0.85em;color:var(--text-secondary)">✅ تم: ' + (job.sent || 0) + ' · ❌ فشل: ' + (job.failed || 0) + ' · ⏭️ تم تجاوزه: ' + (job.skipped || 0) + ' · المجموع: ' + total + '</div>' +
+            '</div>';
+    }
+
+    function renderJobFinal(box, job) {
+        if (!job) return;
+        if (job.gone) {
+            box.innerHTML = '<div class="action-msg action-msg-error" style="display:block">⚠️ المهمة غير موجودة أو انتهت صلاحيتها</div>';
+            return;
+        }
+        if (job.error) {
+            box.innerHTML = '<div class="action-msg action-msg-error" style="display:block">⚠️ ' + esc(job.error) + '</div>';
+            return;
+        }
+        const total = job.total || 0;
+        const done = (job.sent || 0) + (job.failed || 0) + (job.skipped || 0);
+        const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 100;
+        const errs = Array.isArray(job.errors) ? job.errors : [];
+        box.innerHTML = '<div class="action-panel">' +
+            '<div class="action-panel-title">✅ اكتمل الإرسال</div>' +
+            progressBarHtml(pct, '#10b981') +
+            '<div style="font-weight:600;margin-bottom:8px">✅ نجح: ' + (job.sent || 0) + ' · ❌ فشل: ' + (job.failed || 0) + ' · ⏭️ تم تجاوزه: ' + (job.skipped || 0) + '</div>' +
+            (errs.length ? '<details style="font-size:0.82em;color:var(--text-secondary)"><summary style="cursor:pointer">❌ الأخطاء (' + errs.length + ')</summary><ul style="margin:8px 0 0;padding-right:20px">' +
+                errs.slice(0, 10).map(e => '<li style="margin-bottom:4px">' + esc(String(e)) + '</li>').join('') +
+                (errs.length > 10 ? '<li style="color:var(--text-muted)">... و' + (errs.length - 10) + ' خطأ آخر</li>' : '') +
+                '</ul></details>' : '') +
+            '</div>';
+    }
+
+    function showBroadcastProgress(jobId) {
+        const box = document.getElementById('broadcast-progress');
+        box.style.display = '';
+        box.innerHTML = '<div class="action-panel"><div class="action-panel-title">⏳ جاري إرسال البث...</div></div>';
+        pollSendJob(jobId,
+            (job) => renderJobProgress(job, box),
+            (job) => renderJobFinal(box, job)
+        );
+    }
+
+    function showAnnouncementProgress(jobId) {
+        const box = document.getElementById('announcements-progress');
+        box.style.display = '';
+        box.innerHTML = '<div class="action-panel"><div class="action-panel-title">⏳ جاري إرسال الإعلان...</div></div>';
+        pollSendJob(jobId,
+            (job) => renderJobProgress(job, box),
+            (job) => renderJobFinal(box, job)
+        );
     }
 
     /* ===== User Admin Actions ===== */
@@ -2694,6 +3130,162 @@ async def admin_reject_payment_request(rid: int, request: Request):
         return {"success": success, "message": message}
     except Exception as e:
         logger.error(f"admin_reject_payment_request error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+# ==============================================================================
+# Routes — Admin API (البث + الإعلانات)
+# ==============================================================================
+
+BROADCAST_TARGETS = ("all", "subscribed", "not_subscribed", "linked", "not_linked")
+
+
+async def _announcement_type_exists(atype: str) -> bool:
+    """التحقق من أن نوع الإعلان معروف ضمن القوالب (بعد ضمان الجداول)"""
+    from hasad_bot.handlers.announcements import ensure_announcement_tables, get_all_templates
+    await ensure_announcement_tables()
+    templates = await get_all_templates()
+    return any(t.get("type") == atype for t in templates)
+
+
+@app.get("/api/admin/broadcast/preview")
+async def admin_broadcast_preview(target: str = "all"):
+    """معاينة فئة البث: اسم الفئة + العدد + عينة من الأسماء"""
+    try:
+        if target not in BROADCAST_TARGETS:
+            return JSONResponse({"success": False, "message": "الفئة غير صالحة"}, status_code=400)
+        from hasad_bot.database import get_users_count_by_target, get_users_by_target, get_target_name
+        count = await get_users_count_by_target(target)
+        ids = await get_users_by_target(target)
+        sample = []
+        for uid in ids[:10]:
+            user = await db_get_user(uid)
+            sample.append((user or {}).get("name") or f"ID: {uid}")
+        return {
+            "target": target,
+            "target_name": get_target_name(target),
+            "count": count,
+            "sample": sample,
+        }
+    except Exception as e:
+        logger.error(f"admin_broadcast_preview error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/broadcast")
+async def admin_broadcast(request: Request):
+    """إرسال بث نصي لكل مستخدمي الفئة (يتطلب تأكيد)"""
+    try:
+        body = await _parse_admin_body(request)
+        if body.get("confirm") is not True:
+            return JSONResponse({"success": False, "message": "مطلوب تأكيد البث"}, status_code=400)
+        target = (body.get("target") or "").strip()
+        text = body.get("text")
+        if target not in BROADCAST_TARGETS:
+            return JSONResponse({"success": False, "message": "الفئة غير صالحة"}, status_code=400)
+        if not isinstance(text, str) or not text.strip():
+            return JSONResponse({"success": False, "message": "نص البث مطلوب"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import start_broadcast
+        job_id = await start_broadcast(bot, target, text, actor="dashboard")
+        return {"success": True, "job_id": job_id}
+    except Exception as e:
+        logger.error(f"admin_broadcast error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/broadcast/jobs/{job_id}")
+async def admin_broadcast_job(job_id: str):
+    """حالة مهمة بث/إعلان من مخزن المهام"""
+    try:
+        from hasad_bot.admin_ops import get_send_job
+        job = get_send_job(job_id)
+        if job is None:
+            return JSONResponse({"error": "المهمة غير موجودة"}, status_code=404)
+        return job
+    except Exception as e:
+        logger.error(f"admin_broadcast_job error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/announcements")
+async def admin_list_announcements():
+    """قائمة قوالب الإعلانات"""
+    try:
+        from hasad_bot.handlers.announcements import ensure_announcement_tables, get_all_templates
+        await ensure_announcement_tables()
+        templates = await get_all_templates()
+        return {"templates": templates}
+    except Exception as e:
+        logger.error(f"admin_list_announcements error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/announcements/{atype}/toggle")
+async def admin_toggle_announcement(atype: str, request: Request):
+    """تفعيل/تعطيل قالب إعلان"""
+    try:
+        body = await _parse_admin_body(request)
+        enabled = body.get("enabled")
+        if not isinstance(enabled, bool):
+            return JSONResponse({"success": False, "message": "القيمة غير صالحة"}, status_code=400)
+        if not await _announcement_type_exists(atype):
+            return JSONResponse({"error": "النوع غير معروف"}, status_code=404)
+        from hasad_bot.handlers.announcements import set_template_enabled
+        await set_template_enabled(atype, enabled)
+        from hasad_bot.database.auth import log_admin_action
+        await log_admin_action(0, "dashboard", "ANNOUNCEMENT_TOGGLE", details=f"atype={atype} enabled={enabled}")
+        return {"success": True, "enabled": enabled}
+    except Exception as e:
+        logger.error(f"admin_toggle_announcement error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/announcements/{atype}/text")
+async def admin_update_announcement_text(atype: str, request: Request):
+    """تعديل نص قالب الإعلان"""
+    try:
+        body = await _parse_admin_body(request)
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return JSONResponse({"success": False, "message": "النص مطلوب"}, status_code=400)
+        if not await _announcement_type_exists(atype):
+            return JSONResponse({"error": "النوع غير معروف"}, status_code=404)
+        from hasad_bot.handlers.announcements import update_template_text
+        await update_template_text(atype, text)
+        from hasad_bot.database.auth import log_admin_action
+        await log_admin_action(0, "dashboard", "ANNOUNCEMENT_TEXT", details=f"atype={atype} len={len(text)}")
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"admin_update_announcement_text error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/announcements/{atype}/preview")
+async def admin_preview_announcement(atype: str):
+    """معاينة إعلان قبل الإرسال"""
+    try:
+        if not await _announcement_type_exists(atype):
+            return JSONResponse({"error": "النوع غير معروف"}, status_code=404)
+        from hasad_bot.handlers.announcements import preview_announcement
+        return await preview_announcement(atype)
+    except Exception as e:
+        logger.error(f"admin_preview_announcement error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/announcements/{atype}/send")
+async def admin_send_announcement(atype: str):
+    """إرسال إعلان يدوياً الآن"""
+    try:
+        if not await _announcement_type_exists(atype):
+            return JSONResponse({"error": "النوع غير معروف"}, status_code=404)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import start_announcement_send
+        job_id = await start_announcement_send(bot, atype, actor="dashboard")
+        return {"success": True, "job_id": job_id}
+    except Exception as e:
+        logger.error(f"admin_send_announcement error: {e}")
         return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
 
 

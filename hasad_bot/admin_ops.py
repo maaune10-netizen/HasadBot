@@ -4,13 +4,15 @@
 إرسال الملفات المشفرة، النسخ الاحتياطي لقاعدة البيانات، وتصدير بيانات المنصة
 """
 
+import asyncio
 import io
 import os
 import tempfile
 import time
 import zipfile
 import datetime as dt
-from typing import Tuple
+from typing import Tuple, Dict, List, Optional
+from uuid import uuid4
 import aiosqlite
 import msoffcrypto
 import pyzipper
@@ -32,6 +34,8 @@ from hasad_bot.database import (
     update_user_free_attempts,
     archive_user_credentials,
     log_admin_action,
+    get_users_by_target,
+    get_users_count_by_target,
 )
 
 
@@ -861,3 +865,178 @@ async def delete_user(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, st
     except Exception as e:
         logger.error(f"delete_user error: {e}")
         return (False, f"❌ خطأ: {e}")
+
+
+# ==============================================================================
+# الإرسال الجماعي (Broadcast) والإعلانات — منطق مشترك مع لوحة التحكم
+# ==============================================================================
+
+# مخزن وظائف الإرسال الحية (broadcast + announcements)
+SEND_JOBS: Dict[str, dict] = {}
+
+
+def get_send_job(job_id: str) -> Optional[dict]:
+    """قراءة نسخة آمنة من بيانات وظيفة إرسال (نسخة وليس مرجع)."""
+    job = SEND_JOBS.get(job_id)
+    if job is None:
+        return None
+    return {k: (list(v) if isinstance(v, list) else v) for k, v in job.items()}
+
+
+def _new_job_id() -> str:
+    """معرّف فريد لوظيفة إرسال."""
+    return uuid4().hex
+
+
+async def send_broadcast(bot, target: str, text: str, actor: str = "dashboard", progress_cb=None) -> dict:
+    """إرسال رسالة جماعية نصية لفئة مستخدمين (نفس منطق admin_broadcast_send).
+
+    target: all | subscribed | not_subscribed | linked | not_linked
+    Returns: {"sent": n, "failed": n, "skipped": n, "errors": [...]}
+    """
+    valid_targets = ("all", "subscribed", "not_subscribed", "linked", "not_linked")
+    if target not in valid_targets:
+        return {"sent": 0, "failed": 0, "skipped": 0, "errors": [f"فئة غير معروفة: {target}"]}
+
+    users = await get_users_by_target(target)
+    total = len(users)
+    sent = 0
+    failed = 0
+    skipped = 0
+    errors: List[str] = []
+    message = f"📢 <b>رسالة من الإدارة</b>\n\n{text}"
+
+    admin_trace("BROADCAST_SEND", f"target={target} total={total} by {actor}", actor)
+
+    for user_id in users:
+        try:
+            await bot.send_message(chat_id=user_id, text=message, parse_mode="HTML")
+            sent += 1
+        except Exception as e:
+            err_msg = str(e)
+            low = err_msg.lower()
+            if any(k in low for k in ("blocked", "deactivated", "chat not found", "bot was kicked")):
+                skipped += 1
+            else:
+                failed += 1
+                errors.append(f"UID {user_id}: {err_msg[:80]}")
+                logger.error(f"Failed to send to {user_id}: {e}")
+
+        await asyncio.sleep(0.05)  # تجنب الـ Flood wait
+
+        if progress_cb:
+            progress_cb({
+                "done": sent + failed + skipped,
+                "total": total,
+                "sent": sent,
+                "failed": failed,
+                "skipped": skipped,
+            })
+
+    await log_admin_action(0, actor, "BROADCAST_SENT",
+                           details=f"target={target} total={total} sent={sent} failed={failed} skipped={skipped}")
+    admin_trace("BROADCAST_DONE", f"target={target} total={total} sent={sent} failed={failed} skipped={skipped}", actor)
+
+    return {"sent": sent, "failed": failed, "skipped": skipped, "errors": errors}
+
+
+def _update_job_progress(job_id: str, p: dict):
+    """تحديث عدادات الوظيفة أثناء الإرسال."""
+    job = SEND_JOBS.get(job_id)
+    if not job:
+        return
+    job["sent"] = p.get("sent", 0)
+    job["failed"] = p.get("failed", 0)
+    job["skipped"] = p.get("skipped", 0)
+    job["total"] = p.get("total", job["total"])
+
+
+async def start_broadcast(bot, target: str, text: str, actor: str = "dashboard") -> str:
+    """إنشاء وظيفة إرسال جماعي وتشغيلها في الخلفية. يرجع job_id."""
+    job_id = _new_job_id()
+    total = await get_users_count_by_target(target)
+    SEND_JOBS[job_id] = {
+        "job_id": job_id,
+        "kind": "broadcast",
+        "label": target,
+        "status": "queued",
+        "total": total,
+        "sent": 0,
+        "failed": 0,
+        "skipped": 0,
+        "errors": [],
+        "started_at": time.time(),
+        "finished_at": None,
+    }
+    asyncio.create_task(_run_broadcast_job(job_id, bot, target, text, actor))
+    return job_id
+
+
+async def _run_broadcast_job(job_id: str, bot, target: str, text: str, actor: str):
+    """تنفيذ وظيفة الإرسال الجماعي وتحديث الحالة."""
+    job = SEND_JOBS[job_id]
+    job["status"] = "running"
+    try:
+        result = await send_broadcast(
+            bot, target, text, actor=actor,
+            progress_cb=lambda p: _update_job_progress(job_id, p),
+        )
+        job["sent"] = result["sent"]
+        job["failed"] = result["failed"]
+        job["skipped"] = result["skipped"]
+        job["errors"] = result["errors"]
+    except Exception as e:
+        job["errors"].append(str(e)[:200])
+        logger.error(f"broadcast job {job_id} error: {e}")
+    finally:
+        job["status"] = "done"
+        job["finished_at"] = time.time()
+
+
+async def start_announcement_send(bot, atype: str, actor: str = "dashboard") -> str:
+    """إنشاء وظيفة إرسال إعلان وتشغيلها في الخلفية. يرجع job_id."""
+    job_id = _new_job_id()
+    SEND_JOBS[job_id] = {
+        "job_id": job_id,
+        "kind": "announcement",
+        "label": atype,
+        "status": "queued",
+        "total": 0,
+        "sent": 0,
+        "failed": 0,
+        "skipped": 0,
+        "errors": [],
+        "started_at": time.time(),
+        "finished_at": None,
+    }
+    asyncio.create_task(_run_announcement_job(job_id, bot, atype, actor))
+    return job_id
+
+
+async def _run_announcement_job(job_id: str, bot, atype: str, actor: str):
+    """تنفيذ وظيفة إرسال الإعلان وتحديث الحالة + تسجيل العملية بعد الاكتمال."""
+    from hasad_bot.handlers.announcements import send_announcement
+
+    job = SEND_JOBS[job_id]
+    job["status"] = "running"
+    try:
+
+        def _cb(p: dict):
+            job["sent"] = p.get("sent", 0)
+            job["skipped"] = p.get("skipped", 0)
+            job["total"] = p.get("total", job["total"])
+            job["errors"] = p.get("errors", 0)  # عدد مؤقت أثناء التقدم، يُستبدل بالقائمة عند الاكتمال
+
+        sent, skipped, errors = await send_announcement(bot, atype, manual=True, progress_cb=_cb)
+        job["sent"] = sent
+        job["skipped"] = skipped
+        job["errors"] = errors
+        await log_admin_action(0, actor, "ANNOUNCEMENT_SENT",
+                               details=f"type={atype} sent={sent} skipped={skipped} errors={len(errors)}")
+        admin_trace("ANNOUNCEMENT_SENT", f"type={atype} sent={sent} skipped={skipped} errors={len(errors)} by {actor}", actor)
+    except Exception as e:
+        job["errors"].append(str(e)[:200])
+        logger.error(f"announcement job {job_id} error: {e}")
+    finally:
+        job["status"] = "done"
+        job["finished_at"] = time.time()

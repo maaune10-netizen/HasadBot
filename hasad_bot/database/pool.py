@@ -294,6 +294,8 @@ class DatabasePool:
             );
 
             -- 2. سجل تعديلات الأدمن
+            -- ملاحظة: بلا FOREIGN KEY — audit لازم ينجو من حذف المستخدمين،
+            -- والـ FK كان يسبب فشل INSERT (admin_id=0) + قفل دائم للاتصال المشترك
             CREATE TABLE IF NOT EXISTS admin_actions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 admin_id INTEGER NOT NULL,
@@ -304,8 +306,7 @@ class DatabasePool:
                 old_value TEXT,
                 new_value TEXT,
                 details TEXT,
-                created_at REAL NOT NULL,
-                FOREIGN KEY (admin_id) REFERENCES users(telegram_id)
+                created_at REAL NOT NULL
             );
 
             -- 3. سجل الدعم الفني (تذاكر)

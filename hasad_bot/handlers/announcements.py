@@ -451,7 +451,7 @@ async def _log_sent(user_id: int, atype: str):
 # الإرسال الفعلي
 # ==============================================================================
 
-async def send_announcement(bot: Bot, atype: str, manual: bool = False) -> Tuple[int, int, List[str]]:
+async def send_announcement(bot: Bot, atype: str, manual: bool = False, progress_cb=None) -> Tuple[int, int, List[str]]:
     """
     يرسل إعلان لمستخدمين مطابقين.
     Returns: (sent_count, skipped_count, errors)
@@ -506,6 +506,10 @@ async def send_announcement(bot: Bot, atype: str, manual: bool = False) -> Tuple
         else:
             await asyncio.sleep(DELAY_BETWEEN_BATCHES)
 
+        # إبلاغ المتصل بالتقدم (لوحة التحكم)
+        if progress_cb:
+            progress_cb({"done": i + 1, "total": len(targets), "sent": sent, "skipped": skipped, "errors": len(errors)})
+
     admin_trace("ANNOUNCE_DONE", f"{atype}: sent={sent}, skipped={skipped}, errors={len(errors)}", "SYSTEM")
     return sent, skipped, errors
 
@@ -542,6 +546,31 @@ async def _format_message_for_user(template: str, user: dict) -> str:
         semester_hw=semester_hw,
         semester_price=semester_price,
     )
+
+
+async def preview_announcement(atype: str) -> dict:
+    """معاينة قالب إعلان قبل الإرسال (للوحة التحكم).
+
+    Returns: {"type", "name_ar", "count", "sample_rendered", "sample_user_name"}
+    """
+    tpl = await get_template(atype)
+    if not tpl:
+        return {"error": f"نوع غير معروف: {atype}"}
+
+    targets = await get_target_users(atype)
+    sample_rendered = ""
+    sample_user_name = ""
+    if targets:
+        sample_user_name = targets[0].get("name") or "أهلاً"
+        sample_rendered = await _format_message_for_user(tpl["template_text"], targets[0])
+
+    return {
+        "type": atype,
+        "name_ar": tpl.get("name_ar", atype),
+        "count": len(targets),
+        "sample_rendered": sample_rendered,
+        "sample_user_name": sample_user_name,
+    }
 
 
 # ==============================================================================

@@ -89,6 +89,11 @@ async def log_admin_action(admin_id: int, admin_name: str, action_type: str,
         logger.info(f"📝 Admin action logged: {admin_name} -> {action_type}")
 
     except Exception as e:
+        # حرج: فشل INSERT يترك transaction مفتوح على الاتصال المشترك → قفل دائم للقاعدة
+        try:
+            await conn.rollback()
+        except Exception:
+            pass
         logger.error(f"Error logging admin action: {e}")
 
 
@@ -110,6 +115,10 @@ async def log_login_attempt(user_id: int, platform_user: str, success: bool = Tr
         logger.info(f"🔐 Login attempt logged: User={user_id}, Success={success}")
 
     except Exception as e:
+        try:
+            await conn.rollback()
+        except Exception:
+            pass
         logger.error(f"Error logging login attempt: {e}")
 
 
