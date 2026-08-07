@@ -28,7 +28,7 @@ from typing import List, Dict
 from hasad_bot.ai_engine import stats as ai_stats, active_sessions
 from hasad_bot.config import config
 from hasad_bot.database import _db_pool, db_get_user, db_all_users
-from hasad_bot.utils import decrypt_password, now_hijri, admin_trace
+from hasad_bot.utils import now_hijri, admin_trace
 
 # نظام المصادقة الجديد
 from hasad_bot.web_dashboard_auth import (
@@ -961,8 +961,15 @@ DASHBOARD_PAGE = """
             document.getElementById('ws-status').innerHTML = '<span class="status-dot status-offline"></span> انقطع الاتصال';
         };
 
-        ws.onclose = () => {
+        ws.onclose = (ev) => {
             document.getElementById('ws-status').className = 'ws-status ws-disconnected';
+            if (ev && ev.code === 1008) {
+                // الجلسة غير صالحة — لا نعيد المحاولة
+                wsRetries = MAX_RETRIES;
+                document.getElementById('ws-status').innerHTML = '<span class="status-dot status-offline"></span> انتهت الجلسة — أعد تسجيل الدخول';
+                setTimeout(() => { location.href = '/'; }, 1500);
+                return;
+            }
             document.getElementById('ws-status').innerHTML = '<span class="status-dot status-offline"></span> إعادة الاتصال...';
             if (wsRetries < MAX_RETRIES) {
                 wsRetries++;
@@ -1385,7 +1392,7 @@ DASHBOARD_PAGE = """
                     <div class="info-item"><div class="label">المعرف</div><div class="value"><code>${esc(String(u.id))}</code></div></div>
                     <div class="info-item"><div class="label">الاسم</div><div class="value">${esc(u.name)}</div></div>
                     <div class="info-item"><div class="label">يوزر المنصة</div><div class="value"><code>${esc(u.platform_user||'—')}</code></div></div>
-                    <div class="info-item"><div class="label">كلمة المرور</div><div class="value"><span class="password-field">${esc(u.password||'—')}</span></div></div>
+                    <div class="info-item"><div class="label">كلمة المرور</div><div class="value"><span class="password-field">${u.has_password?'🔒 مخفية':'—'}</span></div></div>
                     <div class="info-item"><div class="label">الاشتراك</div><div class="value"><span class="badge ${u.is_subscribed?'badge-success':'badge-danger'}">${u.is_subscribed?'✅ مشترك':'❌ غير مشترك'}</span></div></div>
                     <div class="info-item"><div class="label">تاريخ الانتهاء</div><div class="value">${esc(u.expiry||'—')}</div></div>
                     <div class="info-item"><div class="label">المحاولات المجانية</div><div class="value">${u.attempts||0}</div></div>
@@ -1546,14 +1553,10 @@ async def api_login(login_data: LoginData, request: Request):
             "message": message,
             "username": login_data.username,
         })
-        json_response.set_cookie(
-            key=COOKIE_NAME,
-            value=token,
-            httponly=True,
+        auth_manager.create_session_cookie(
+            json_response,
+            token,
             secure=config.dashboard_cookie_secure,
-            samesite="strict",
-            max_age=config.jwt_expiry_hours * 3600,
-            path="/",
         )
         return json_response
 
@@ -1616,8 +1619,6 @@ async def get_user_details(user_id: int):
     if not user:
         return JSONResponse({"error": "User not found"}, status_code=404)
 
-    password = decrypt_password(user.get('dars360_pass', '')) if user.get('dars360_pass') else None
-
     conn = await _db_pool.get_connection()
 
     async with conn.execute("""
@@ -1635,7 +1636,8 @@ async def get_user_details(user_id: int):
         "id": user['telegram_id'],
         "name": user.get('name', ''),
         "platform_user": user.get('dars360_user'),
-        "password": password,
+        "password": None,
+        "has_password": bool(user.get('dars360_pass')),
         "is_subscribed": await is_subscribed(user_id),
         "expiry": user.get('expiry_hijri'),
         "attempts": user.get('free_attempts', 0),
@@ -1963,6 +1965,18 @@ async def test_database(request: Request, _user: str = Depends(require_auth)):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    # التحقق من الجلسة قبل السماح بالاتصال (نفس منطق IP الخاص بـ auth)
+    token = websocket.cookies.get(COOKIE_NAME)
+    forwarded = websocket.headers.get("X-Forwarded-For")
+    if forwarded:
+        ip = forwarded.split(",")[0].strip()
+    else:
+        real_ip = websocket.headers.get("X-Real-IP")
+        ip = real_ip if real_ip else (websocket.client.host if websocket.client else "unknown")
+    payload = auth_manager.verify_session_token(token, ip)
+    if not payload:
+        await websocket.close(code=1008)
+        return
     await manager.connect(websocket)
     try:
         while True:

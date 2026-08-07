@@ -468,6 +468,13 @@ class AuthManager:
         ip = self.get_client_ip(request)
         return self.jwt_manager.verify_token(token, expected_ip=ip)
 
+    def verify_session_token(self, token: str, ip: str) -> Optional[Dict]:
+        """
+        التحقق من JWT token + IP مباشرة (لـ WebSocket وغيره)
+        Returns: token payload if valid, None otherwise
+        """
+        return self.jwt_manager.verify_token(token, expected_ip=ip)
+
     def create_session_cookie(
         self,
         response: Response,
