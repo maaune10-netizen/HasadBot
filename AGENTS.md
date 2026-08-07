@@ -185,8 +185,10 @@ Telegram Users ⇄ handlers/ (PTB v20) ⇄ database/ (aiosqlite ⇄ SQLite files
 ## 9. Web Dashboard
 
 - Single-file FastAPI app (`web_dashboard.py`), launched as a **detached subprocess** by `post_init` (port auto-find: 9000 → 8765 → 9876 → 9999 → 15000 → 18000; binds `127.0.0.1`; exposed via Cloudflare tunnel commands).
-- **Auth** (`web_dashboard_auth.py`): bcrypt (cost 12) → JWT HS256 (idle 8h, absolute 24h, IP-bound) in HttpOnly cookie `hasad_session`; in-memory RateLimiter (5 fails/300 s → 900 s lockout); optional IP whitelist; AuditLogger. Middleware gates everything except public paths — **including `/ws`, which skips auth entirely** (leaks aggregated + per-user data; known issue).
+- **Auth** (`web_dashboard_auth.py`): bcrypt (cost 12) → JWT HS256 (idle 8h, absolute 24h, IP-bound) in HttpOnly cookie `hasad_session`; in-memory RateLimiter (5 fails/300 s → 900 s lockout); optional IP whitelist; AuditLogger. Middleware gates every path except public paths. **`/ws` also requires the session cookie** (rejected otherwise) — set via `AuthManager.verify_session_token(token, ip)`.
 - **L1 cache**: module-global `_DASHBOARD_CACHE`/`_DASHBOARD_TTL` (15 s) in front of ~20 inline SQL queries; `/ws` pushes `get_dashboard_data()` every 3 s.
+- **Admin control panel (V1)**: `GET /api/admin/users?q=&filter=` (safe fields, never passwords), `GET/POST /api/admin/users/{id}` + `/renew` `/revoke` `/unlock` `/homework`, `DELETE /api/admin/users/{id}` (requires `{"confirm":"DELETE"}`), `GET /api/admin/payment-requests`, `POST .../activate {"days"}` `/reject {"reason"}`. All mutations call the **shared services in `hasad_bot/admin_ops.py`** — the same functions the Telegram handlers use (byte-identical user notifications, `log_admin_action` + `admin_trace` on every op). Frontend: tab-based SPA (المستخدمين/النشطين/الأسئلة/الأخطاء/المشتركين/APIs/طلبات الدفع) + user-detail modal with action buttons + typed-DELETE confirm.
+- `hasad_bot/admin_ops.py` also owns the backup/export services (`send_db_backup`, `send_cv_export`, `extract_credentials`, encrypted senders) — shared by main.py channel/CLI and the dashboard.
 - **Known issues (do not rely on)**: `/api/me` reads `exp_abs` but JWT payload key is `abs_exp` (always None); `/api/user/{id}` returns decrypted platform passwords over the wire; 500s leak `str(e)`; duplicate `set_cookie` paths (`web_dashboard.py` vs `auth.create_session_cookie`); `IPWhitelist([])` explicit-empty list fails open.
 
 ## 10. Logging & Observability
@@ -212,10 +214,9 @@ python -m pytest tests/test_resilience.py -q
 
 ## 12. Known Issues & Landmines (verified 2026-08-07)
 
-**Fixed in the A-series (2026-08-07, commit A-series):** `idx_exam_cache` line removed — the `UNIQUE(exam_id, question_number)` constraint already auto-indexes it; `/api/me` `exp_abs` → `abs_exp`; dashboard stats job 3s → 15s; `tunnel.py` hard-coded `ADMIN_ID` deleted (was dead); `colorama` + `starlette` pin added to `requirements.txt`; `send_encrypted_file` caption fixed; `row_factory` set once at connection creation.
+**Fixed in the A-series + Dashboard V1 (2026-08-07):** `idx_exam_cache` line removed (UNIQUE constraint already auto-indexes); `/api/me` `exp_abs` → `abs_exp`; dashboard stats job 3s → 15s; `tunnel.py` dead `ADMIN_ID` deleted; `colorama` + `starlette` pin; `send_encrypted_file` caption; `row_factory` at connection creation; **`/ws` now authenticated (H9); `/api/user/{id}` no longer returns decrypted passwords (H8); duplicate `set_cookie` paths merged (H2).**
 
-**Still broken / open (from `docs/AUDIT_2026-06-07.md`, re-verified):**
-- `web_dashboard.py`: `/ws` unauthenticated (H9); `str(e)` leaked to clients (H7); decrypted passwords to browser (H8); two `set_cookie` paths (H2).
+**Still open:** `str(e)` leaked to clients in some 500 responses (H7 — new endpoints use generic messages); `utils.encrypt_password` XOR obfuscation; `send_db_backup` (CLI) plain zip vs AES in channel; `global_error_handler` never registered; stranded terminal listener tasks.
 - `handlers/tunnel.py:32`: hard-coded `ADMIN_ID = 7606170063` — **overrides env** `ADMIN_ID` (7286004246) as "the admin" in tunnel handlers; 3 sources of truth for admin ID.
 - `utils.encrypt_password` = XOR + base64 with a separate 32-byte key file — obfuscation, not encryption.
 - `colorama` missing from `requirements.txt`; `send_encrypted_file` caption f-string truncated; CLI `send_db_backup` uses plain zip while channel `DB` command uses AES zip.
