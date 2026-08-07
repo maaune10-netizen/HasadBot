@@ -28,14 +28,19 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
 from hasad_bot.config import config, MAIN_MENU, ADMIN_PANEL
+from hasad_bot.admin_ops import (
+    renew_subscription,
+    revoke_subscription,
+    add_homework_credit,
+    unlock_user,
+    delete_user,
+)
 from hasad_bot.database import (
     _db_pool,
     db_init,
     db_get_user,
     db_set_user,
     db_all_users,
-    db_log,
-    db_delete_user,
     db_create_keys,
     db_activate_key,
     is_admin,
@@ -43,7 +48,6 @@ from hasad_bot.database import (
     is_public_mode,
     set_public_mode,
     update_user_last_active,
-    create_user_subscription,
     get_user_remaining_homeworks,
     get_users_count_by_target,
     get_users_by_target,
@@ -51,14 +55,13 @@ from hasad_bot.database import (
     is_bot_frozen,
     is_teacher,
 )
-from hasad_bot.datetime_utils import datetime, now, now_timestamp
+from hasad_bot.datetime_utils import now, now_timestamp
 from hasad_bot.utils import (
     kb_admin,
     kb_main,
     admin_trace,
     now_hijri,
     decrypt_password,
-    gregorian_to_hijri,
 )
 from hasad_bot.logger import log_button_click
 
@@ -366,47 +369,17 @@ async def admin_renew_got_days(update: Update, context):
     try:
         days = int(update.message.text.strip())
         uid_i = int(context.user_data.get("renew_uid", "0"))
-        u = await db_get_user(uid_i)
 
-        if not u:
-            await update.message.reply_text("❌ المستخدم غير موجود.")
-            return ADMIN_PANEL
+        ok, msg = await renew_subscription(context.bot, uid_i, days, actor="telegram")
 
-        cur_exp = u.get("expiry_ts", 0) or 0
-        if cur_exp < now_timestamp():
-            cur_exp = now_timestamp()
-
-        new_exp = cur_exp + days * 86400
-        exp_h = gregorian_to_hijri(datetime.fromtimestamp(new_exp))
-        # تحديث جدول users
-        await db_set_user(uid_i, expiry_ts=new_exp, expiry_hijri=exp_h)
-
-        # ✅ ========== إنشاء اشتراك جديد ==========
-        if days <= 7:
-            plan_id = "weekly"
-        elif days <= 30:
-            plan_id = "monthly"
-        else:
-            plan_id = "semester"
-
-        await create_user_subscription(uid_i, plan_id, cur_exp, new_exp)
-        # ==========================================
-
-        await update.message.reply_text(
-            f"✅ تم تجديد <code>{uid_i}</code> +{days} يوم | الانتهاء: {exp_h}",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_admin()
-        )
-
-        # إشعار للمستخدم
-        try:
-            await context.bot.send_message(
-                uid_i,
-                f"🎉 <b>تم تحديث اشتراكك!</b> +{days} يوم.\nالانتهاء: {exp_h}",
-                parse_mode=ParseMode.HTML
+        if ok:
+            await update.message.reply_text(
+                msg,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_admin()
             )
-        except:
-            pass
+        else:
+            await update.message.reply_text(msg)
 
     except Exception as e:
         await update.message.reply_text(f"❌ خطأ: {e}")
@@ -431,20 +404,15 @@ async def admin_revoke_ask(update: Update, context):
 async def admin_revoke_done(update: Update, context):
     try:
         uid_i = int(update.message.text.strip())
-        await db_set_user(uid_i, expiry_ts=0, expiry_hijri="تم الإلغاء ❌")
-        await update.message.reply_text(
-            f"✅ تم إلغاء اشتراك <code>{uid_i}</code>.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_admin()
-        )
-        try:
-            await context.bot.send_message(
-                uid_i,
-                "🚫 <b>تم إلغاء اشتراكك من قبل الإدارة.</b>",
-                parse_mode=ParseMode.HTML
+        ok, msg = await revoke_subscription(context.bot, uid_i, actor="telegram")
+        if ok:
+            await update.message.reply_text(
+                msg,
+                parse_mode=ParseMode.HTML,
+                reply_markup=kb_admin()
             )
-        except:
-            pass
+        else:
+            await update.message.reply_text(msg)
     except Exception as e:
         await update.message.reply_text(f"❌ فشل: {e}")
     return ADMIN_PANEL
@@ -615,36 +583,8 @@ async def admin_add_hw_got_count(update: Update, context: ContextTypes.DEFAULT_T
 
     if not is_subscribed:
         # ✅ غير مشترك → أضف مباشرة إلى free_attempts
-        current = user.get("free_attempts", 0)
-        new_value = current + count
-
-        conn = await _db_pool.get_connection()
-        await conn.execute(
-            "UPDATE users SET free_attempts = ? WHERE telegram_id = ?",
-            (new_value, target_uid)
-        )
-        await conn.commit()
-
-        await db_log(update.effective_user.id, "ADD_HOMEWORKS",
-                     detail=f"User {target_uid} +{count} free (was {current}, now {new_value})")
-
-        await update.message.reply_text(
-            f"✅ <b>تمت الإضافة بنجاح!</b>\n\n"
-            f"👤 المستخدم: {user.get('name', target_uid)}\n"
-            f"➕ تم إضافة: {count} واجب (رصيد مجاني)\n"
-            f"🎟️ الرصيد الجديد: {new_value}",
-            parse_mode=ParseMode.HTML
-        )
-        # إشعار للمستخدم
-        try:
-            await context.bot.send_message(
-                target_uid,
-                f"🎉 <b>تم إضافة {count} واجبات مجانية إلى رصيدك!</b>\n"
-                f"🎟️ رصيدك الحالي: {new_value} واجب",
-                parse_mode=ParseMode.HTML
-            )
-        except:
-            pass
+        ok, msg = await add_homework_credit(context.bot, target_uid, count, "free")
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
         return MAIN_MENU
 
     else:
@@ -691,70 +631,12 @@ async def admin_add_hw_choice_callback(update: Update, context: ContextTypes.DEF
         return
 
     if choice == "add_hw_free":
-        # إضافة إلى free_attempts
-        current = user.get("free_attempts", 0)
-        new_value = current + count
-        conn = await _db_pool.get_connection()
-        await conn.execute(
-            "UPDATE users SET free_attempts = ? WHERE telegram_id = ?",
-            (new_value, target_uid)
-        )
-        await conn.commit()
-        await db_log(uid, "ADD_HOMEWORKS_FREE",
-                     detail=f"User {target_uid} +{count} free (was {current}, now {new_value})")
-        await query.edit_message_text(
-            f"✅ تم إضافة {count} واجبات إلى الرصيد المجاني للمستخدم {user.get('name', target_uid)}.\n"
-            f"🎟️ الرصيد الجديد: {new_value}",
-            parse_mode=ParseMode.HTML
-        )
-        # إشعار للمستخدم
-        try:
-            await context.bot.send_message(
-                target_uid,
-                f"🎉 <b>تم إضافة {count} واجبات مجانية إلى رصيدك!</b>\n"
-                f"🎟️ رصيدك الحالي: {new_value} واجب",
-                parse_mode=ParseMode.HTML
-            )
-        except:
-            pass
+        ok, msg = await add_homework_credit(context.bot, target_uid, count, "free")
+        await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
 
     else:  # add_hw_sub
-        # إضافة إلى max_homeworks في الاشتراك النشط
-        conn = await _db_pool.get_connection()
-        # جلب الاشتراك النشط
-        async with conn.execute("""
-            SELECT id, max_homeworks FROM user_subscriptions
-            WHERE user_id = ? AND is_active = 1 AND end_date > ?
-            ORDER BY end_date DESC LIMIT 1
-        """, (target_uid, time.time())) as cursor:
-            sub = await cursor.fetchone()
-        if not sub:
-            await query.edit_message_text("❌ لا يوجد اشتراك نشط لهذا المستخدم.")
-            return
-        sub_id, current_max = sub
-        new_max = current_max + count
-        await conn.execute(
-            "UPDATE user_subscriptions SET max_homeworks = ? WHERE id = ?",
-            (new_max, sub_id)
-        )
-        await conn.commit()
-        await db_log(uid, "ADD_HOMEWORKS_SUB",
-                     detail=f"User {target_uid} +{count} to subscription (was {current_max}, now {new_max})")
-        await query.edit_message_text(
-            f"✅ تم إضافة {count} واجبات إلى حد اشتراك المستخدم {user.get('name', target_uid)}.\n"
-            f"📦 الحد الجديد: {new_max} واجب",
-            parse_mode=ParseMode.HTML
-        )
-        # إشعار للمستخدم
-        try:
-            await context.bot.send_message(
-                target_uid,
-                f"🎉 <b>تم زيادة حد اشتراكك بمقدار {count} واجب!</b>\n"
-                f"📦 الحد الجديد: {new_max} واجب",
-                parse_mode=ParseMode.HTML
-            )
-        except:
-            pass
+        ok, msg = await add_homework_credit(context.bot, target_uid, count, "sub")
+        await query.edit_message_text(msg, parse_mode=ParseMode.HTML)
 
     # تنظيف البيانات
     context.user_data.pop("add_hw_target_uid", None)
@@ -787,39 +669,13 @@ async def admin_add_hw_confirm_callback(update: Update, context: ContextTypes.DE
         await query.edit_message_text("❌ المستخدم غير موجود.")
         return
 
-    current = user.get("free_attempts", 0)
-    new_value = current + count
-
-    # تحديث قاعدة البيانات
-    conn = await _db_pool.get_connection()
-    await conn.execute(
-        "UPDATE users SET free_attempts = ? WHERE telegram_id = ?",
-        (new_value, target_uid)
-    )
-    await conn.commit()
-
-    # تسجيل العملية
-    await db_log(uid, "ADD_HOMEWORKS", detail=f"User {target_uid} +{count} (was {current}, now {new_value})")
+    ok, msg = await add_homework_credit(context.bot, target_uid, count, "free")
 
     await query.edit_message_text(
-        f"✅ <b>تمت الإضافة بنجاح!</b>\n\n"
-        f"👤 المستخدم: {user.get('name', target_uid)}\n"
-        f"➕ تم إضافة: {count} واجب\n"
-        f"🎟️ الرصيد الجديد: {new_value}",
+        msg,
         parse_mode=ParseMode.HTML,
         reply_markup=kb_admin()
     )
-
-    # إرسال إشعار للمستخدم (اختياري)
-    try:
-        await context.bot.send_message(
-            target_uid,
-            f"🎉 <b>تم إضافة {count} واجبات مجانية إلى رصيدك!</b>\n"
-            f"🎟️ رصيدك الحالي: {new_value} واجب",
-            parse_mode=ParseMode.HTML
-        )
-    except:
-        pass
 
     # تنظيف البيانات
     context.user_data.pop("add_hw_target_uid", None)
@@ -1006,17 +862,8 @@ async def cb_unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     uid_i = int(q.data.split(":")[1])
-    await db_set_user(uid_i, locked_to=None, lock_request=0, dars360_user=None, dars360_pass=None)
-    await q.edit_message_text(f"✅ تم فك قفل <code>{uid_i}</code>.", parse_mode=ParseMode.HTML)
-
-    try:
-        await context.bot.send_message(
-            uid_i,
-            "🔓 <b>تم فك قفل حسابك.</b> يمكنك إضافة حساب جديد الآن.",
-            parse_mode=ParseMode.HTML
-        )
-    except:
-        pass
+    ok, msg = await unlock_user(context.bot, uid_i, actor="telegram")
+    await q.edit_message_text(msg, parse_mode=ParseMode.HTML)
 
 
 async def cb_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1027,8 +874,8 @@ async def cb_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     uid_i = int(q.data.split(":")[1])
-    await db_delete_user(uid_i)
-    await q.edit_message_text(f"🗑️ تم حذف <code>{uid_i}</code>.", parse_mode=ParseMode.HTML)
+    ok, msg = await delete_user(context.bot, uid_i, actor="telegram")
+    await q.edit_message_text(msg, parse_mode=ParseMode.HTML)
 
 
 # ==============================================================================

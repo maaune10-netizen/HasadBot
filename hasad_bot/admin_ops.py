@@ -7,8 +7,10 @@
 import io
 import os
 import tempfile
+import time
 import zipfile
 import datetime as dt
+from typing import Tuple
 import aiosqlite
 import msoffcrypto
 import pyzipper
@@ -17,8 +19,20 @@ from pathlib import Path
 from loguru import logger
 
 from hasad_bot.config import config
-from hasad_bot.utils import now_hijri, admin_trace, decrypt_password
-from hasad_bot.database import db_all_users
+from hasad_bot.utils import now_hijri, admin_trace, decrypt_password, gregorian_to_hijri
+from hasad_bot.datetime_utils import datetime, now_timestamp
+from hasad_bot.database import (
+    _db_pool,
+    db_all_users,
+    db_get_user,
+    db_set_user,
+    db_delete_user,
+    db_log,
+    create_user_subscription,
+    update_user_free_attempts,
+    archive_user_credentials,
+    log_admin_action,
+)
 
 
 async def send_encrypted_excel_file(bot, chat_id, workbook, filename: str, caption: str):
@@ -468,3 +482,382 @@ async def send_encrypted_file(bot, chat_id: int, file_path: Path, caption: str, 
         # حذف الملف المؤقت
         if zip_path.exists():
             zip_path.unlink()
+
+
+# ==============================================================================
+# عمليات الإدارة المشتركة - تُستخدم من Telegram ومن لوحة التحكم (Web Dashboard)
+# كل دالة: تنفيذ التعديلات على قاعدة البيانات + إشعار المستخدم + تسجيل العملية
+# ==============================================================================
+
+async def _get_payment_request_by_id(request_id: int):
+    """قراءة سجل طلب دفع بالمعرّف (None إذا لم يوجد)"""
+    try:
+        conn = await _db_pool.get_connection()
+        async with conn.execute(
+            "SELECT * FROM payment_requests WHERE id = ?",
+            (request_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Error reading payment request {request_id}: {e}")
+        return None
+
+
+async def renew_subscription(bot, uid: int, days: int, actor: str = "dashboard") -> Tuple[bool, str]:
+    """تجديد اشتراك مستخدم (نفس منطق admin_renew_got_days)"""
+    try:
+        u = await db_get_user(uid)
+        if not u:
+            return (False, "❌ المستخدم غير موجود.")
+
+        cur_exp = u.get("expiry_ts", 0) or 0
+        if cur_exp < now_timestamp():
+            cur_exp = now_timestamp()
+
+        new_exp = cur_exp + days * 86400
+        exp_h = gregorian_to_hijri(datetime.fromtimestamp(new_exp))
+        # تحديث جدول users
+        await db_set_user(uid, expiry_ts=new_exp, expiry_hijri=exp_h)
+
+        # تحديد الخطة حسب عدد الأيام
+        if days <= 7:
+            plan_id = "weekly"
+        elif days <= 30:
+            plan_id = "monthly"
+        else:
+            plan_id = "semester"
+
+        await create_user_subscription(uid, plan_id, cur_exp, new_exp)
+
+        # إشعار للمستخدم
+        try:
+            await bot.send_message(
+                uid,
+                f"🎉 <b>تم تحديث اشتراكك!</b> +{days} يوم.\nالانتهاء: {exp_h}",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        await log_admin_action(0, actor, "RENEW_SUBSCRIPTION",
+                               target_user_id=uid, target_user_name=u.get("name", ""),
+                               old_value=str(u.get("expiry_ts", 0) or 0), new_value=str(new_exp),
+                               details=f"+{days} days, plan={plan_id}, end={exp_h}")
+        admin_trace("RENEW_SUBSCRIPTION", f"User {uid} +{days}d (plan={plan_id}) by {actor}", uid=str(uid))
+
+        return (True, f"✅ تم تجديد <code>{uid}</code> +{days} يوم | الانتهاء: {exp_h}")
+
+    except Exception as e:
+        logger.error(f"renew_subscription error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def revoke_subscription(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, str]:
+    """إلغاء اشتراك مستخدم (نفس منطق admin_revoke_done)"""
+    try:
+        u = await db_get_user(uid)
+        if not u:
+            return (False, "❌ المستخدم غير موجود.")
+
+        await db_set_user(uid, expiry_ts=0, expiry_hijri="تم الإلغاء ❌")
+
+        # إشعار للمستخدم
+        try:
+            await bot.send_message(
+                uid,
+                "🚫 <b>تم إلغاء اشتراكك من قبل الإدارة.</b>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        await log_admin_action(0, actor, "REVOKE_SUBSCRIPTION",
+                               target_user_id=uid, target_user_name=u.get("name", ""),
+                               old_value=str(u.get("expiry_ts", 0) or 0), new_value="0",
+                               details="Revoked by " + actor)
+        admin_trace("REVOKE_SUBSCRIPTION", f"User {uid} revoked by {actor}", uid=str(uid))
+
+        return (True, f"✅ تم إلغاء اشتراك <code>{uid}</code>.")
+
+    except Exception as e:
+        logger.error(f"revoke_subscription error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def add_homework_credit(bot, uid: int, count: int, kind: str) -> Tuple[bool, str]:
+    """إضافة واجبات لمستخدم (kind: free للرصيد المجاني، sub لحد الاشتراك)"""
+    try:
+        user = await db_get_user(uid)
+        if not user:
+            return (False, "❌ المستخدم غير موجود.")
+        name = user.get("name", uid)
+
+        if kind == "free":
+            # إضافة إلى free_attempts
+            current = user.get("free_attempts", 0)
+            new_value = current + count
+            await update_user_free_attempts(uid, new_value)
+
+            await db_log(0, "ADD_HOMEWORKS",
+                         detail=f"User {uid} +{count} free (was {current}, now {new_value})")
+
+            # إشعار للمستخدم
+            try:
+                await bot.send_message(
+                    uid,
+                    f"🎉 <b>تم إضافة {count} واجبات مجانية إلى رصيدك!</b>\n"
+                    f"🎟️ رصيدك الحالي: {new_value} واجب",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+            await log_admin_action(0, "admin", "ADD_HOMEWORKS_FREE",
+                                   target_user_id=uid, target_user_name=name,
+                                   old_value=str(current), new_value=str(new_value),
+                                   details=f"+{count} free homeworks")
+            admin_trace("ADD_HOMEWORKS", f"User {uid} +{count} free (was {current}, now {new_value})", uid=str(uid))
+
+            return (True, f"✅ <b>تمت الإضافة بنجاح!</b>\n\n"
+                          f"👤 المستخدم: {name}\n"
+                          f"➕ تم إضافة: {count} واجب (رصيد مجاني)\n"
+                          f"🎟️ الرصيد الجديد: {new_value}")
+
+        elif kind == "sub":
+            # إضافة إلى max_homeworks في الاشتراك النشط
+            conn = await _db_pool.get_connection()
+            async with conn.execute("""
+                SELECT id, max_homeworks FROM user_subscriptions
+                WHERE user_id = ? AND is_active = 1 AND end_date > ?
+                ORDER BY end_date DESC LIMIT 1
+            """, (uid, time.time())) as cursor:
+                sub = await cursor.fetchone()
+            if not sub:
+                return (False, "❌ لا يوجد اشتراك نشط لهذا المستخدم.")
+            sub_id, current_max = sub
+            new_max = current_max + count
+            await conn.execute(
+                "UPDATE user_subscriptions SET max_homeworks = ? WHERE id = ?",
+                (new_max, sub_id)
+            )
+            await conn.commit()
+
+            await db_log(0, "ADD_HOMEWORKS_SUB",
+                         detail=f"User {uid} +{count} to subscription (was {current_max}, now {new_max})")
+
+            # إشعار للمستخدم
+            try:
+                await bot.send_message(
+                    uid,
+                    f"🎉 <b>تم زيادة حد اشتراكك بمقدار {count} واجب!</b>\n"
+                    f"📦 الحد الجديد: {new_max} واجب",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+            await log_admin_action(0, "admin", "ADD_HOMEWORKS_SUB",
+                                   target_user_id=uid, target_user_name=name,
+                                   old_value=str(current_max), new_value=str(new_max),
+                                   details=f"+{count} to subscription limit")
+            admin_trace("ADD_HOMEWORKS_SUB", f"User {uid} +{count} to subscription (was {current_max}, now {new_max})", uid=str(uid))
+
+            return (True, f"✅ تم إضافة {count} واجبات إلى حد اشتراك المستخدم {name}.\n"
+                          f"📦 الحد الجديد: {new_max} واجب")
+
+        else:
+            return (False, f"❌ نوع غير معروف: {kind}")
+
+    except Exception as e:
+        logger.error(f"add_homework_credit error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def approve_payment_request(bot, request_id: int, days: int, actor: str = "dashboard") -> Tuple[bool, str]:
+    """تفعيل اشتراك من طلب دفع (نفس منطق set_days_callback / handle_custom_days_input)"""
+    try:
+        req = await _get_payment_request_by_id(request_id)
+        if not req:
+            return (False, "❌ طلب الدفع غير موجود.")
+        if req.get("status") != "pending":
+            return (False, f"❌ الطلب رقم {request_id} تمت معالجته مسبقاً (الحالة: {req.get('status')}).")
+
+        uid = req["user_id"]
+        u = await db_get_user(uid)
+        if not u:
+            return (False, f"❌ المستخدم {uid} غير موجود")
+
+        # حساب تواريخ الاشتراك
+        cur_exp = u.get("expiry_ts", 0) or 0
+        if cur_exp < now_timestamp():
+            cur_exp = now_timestamp()
+
+        new_exp = cur_exp + days * 86400
+        exp_h = gregorian_to_hijri(datetime.fromtimestamp(new_exp))
+        # تحديث جدول users
+        await db_set_user(uid, expiry_ts=new_exp, expiry_hijri=exp_h)
+
+        # تحديد الخطة حسب عدد الأيام
+        if days <= 7:
+            plan_id = "weekly"
+            max_homeworks = 25
+        elif days <= 30:
+            plan_id = "monthly"
+            max_homeworks = 100
+        else:
+            plan_id = "semester"
+            max_homeworks = 200
+
+        await create_user_subscription(uid, plan_id, cur_exp, new_exp)
+
+        # تحديث طلب الدفع
+        try:
+            conn = await _db_pool.get_connection()
+            await conn.execute("""
+                UPDATE payment_requests
+                SET status = 'approved', processed_at = ?, processed_by = ?
+                WHERE id = ? AND status = 'pending'
+            """, (time.time(), actor, request_id))
+            await conn.commit()
+        except Exception:
+            pass
+
+        # إشعار للمستخدم
+        try:
+            await bot.send_message(
+                uid,
+                f"🎉 <b>تم تفعيل اشتراكك!</b> 🎉\n\n"
+                f"📦 <b>الخطة:</b> {plan_id}\n"
+                f"📚 <b>الواجبات:</b> {max_homeworks} واجب\n"
+                f"📅 <b>المدة:</b> +{days} يوم\n"
+                f"📆 <b>الانتهاء:</b> {exp_h}\n\n"
+                f"🚀 استمتع بحل الواجبات!",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        await log_admin_action(0, actor, "APPROVE_PAYMENT_REQUEST",
+                               target_user_id=uid, target_user_name=req.get("user_name", ""),
+                               old_value="pending", new_value="approved",
+                               details=f"Request #{request_id}, +{days} days, plan={plan_id}")
+        admin_trace("APPROVE_PAYMENT_REQUEST", f"Request #{request_id} approved for user {uid} (+{days}d, plan={plan_id}) by {actor}", uid=str(uid))
+
+        return (True, f"✅ <b>تم التفعيل بنجاح!</b>\n\n"
+                      f"👤 المستخدم: <code>{uid}</code>\n"
+                      f"📅 المدة: {days} يوم\n"
+                      f"📦 الخطة: {plan_id} ({max_homeworks} واجب)\n"
+                      f"📆 الانتهاء: {exp_h}")
+
+    except Exception as e:
+        logger.error(f"approve_payment_request error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def reject_payment_request(bot, request_id: int, reason: str, actor: str = "dashboard") -> Tuple[bool, str]:
+    """رفض طلب دفع (نفس منطق reject_reason_callback / handle_custom_reject)"""
+    try:
+        req = await _get_payment_request_by_id(request_id)
+        if not req:
+            return (False, "❌ طلب الدفع غير موجود.")
+        if req.get("status") != "pending":
+            return (False, f"❌ الطلب رقم {request_id} تمت معالجته مسبقاً (الحالة: {req.get('status')}).")
+
+        uid = req["user_id"]
+
+        # تحديث طلب الدفع
+        try:
+            conn = await _db_pool.get_connection()
+            await conn.execute("""
+                UPDATE payment_requests
+                SET status = 'rejected', processed_at = ?, processed_by = ?
+                WHERE id = ? AND status = 'pending'
+            """, (time.time(), actor, request_id))
+            await conn.commit()
+        except Exception:
+            pass
+
+        # إشعار للمستخدم
+        try:
+            await bot.send_message(
+                uid,
+                f"❌ <b>تم رفض طلب الاشتراك</b>\n\n"
+                f"📌 <b>السبب:</b> {reason}\n\n"
+                f"💡 للاستفسار، تواصل مع الدعم الفني.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        await log_admin_action(0, actor, "REJECT_PAYMENT_REQUEST",
+                               target_user_id=uid, target_user_name=req.get("user_name", ""),
+                               old_value="pending", new_value="rejected",
+                               details=f"Request #{request_id}, reason: {reason}")
+        admin_trace("REJECT_PAYMENT_REQUEST", f"Request #{request_id} rejected for user {uid} by {actor}", uid=str(uid))
+
+        return (True, f"✅ <b>تم رفض الطلب!</b>\n\n"
+                      f"👤 المستخدم: <code>{uid}</code>\n"
+                      f"📌 السبب: {reason}")
+
+    except Exception as e:
+        logger.error(f"reject_payment_request error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def unlock_user(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, str]:
+    """فك قفل مستخدم مع أرشفة بيانات المنصة إن وجدت (نفس منطق cb_unlock)"""
+    try:
+        u = await db_get_user(uid)
+        if not u:
+            return (False, "❌ المستخدم غير موجود.")
+
+        # أرشفة بيانات المنصة قبل فك القفل (إن وجدت)
+        try:
+            await archive_user_credentials(uid, 0, actor, "فك القفل بواسطة الإدارة")
+        except Exception:
+            pass
+
+        await db_set_user(uid, locked_to=None, lock_request=0, dars360_user=None, dars360_pass=None)
+
+        # إشعار للمستخدم
+        try:
+            await bot.send_message(
+                uid,
+                "🔓 <b>تم فك قفل حسابك.</b> يمكنك إضافة حساب جديد الآن.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        await log_admin_action(0, actor, "UNLOCK_USER",
+                               target_user_id=uid, target_user_name=u.get("name", ""),
+                               details="Unlocked by " + actor)
+        admin_trace("UNLOCK_USER", f"User {uid} unlocked by {actor}", uid=str(uid))
+
+        return (True, f"✅ تم فك قفل <code>{uid}</code>.")
+
+    except Exception as e:
+        logger.error(f"unlock_user error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def delete_user(bot, uid: int, actor: str = "dashboard") -> Tuple[bool, str]:
+    """حذف مستخدم مع جميع سجلاته (نفس منطق cb_delete)"""
+    try:
+        u = await db_get_user(uid)
+        if not u:
+            return (False, "❌ المستخدم غير موجود.")
+
+        await db_delete_user(uid)
+
+        await log_admin_action(0, actor, "DELETE_USER",
+                               target_user_id=uid, target_user_name=u.get("name", ""),
+                               details="Deleted by " + actor)
+        admin_trace("DELETE_USER", f"User {uid} deleted by {actor}", uid=str(uid))
+
+        return (True, f"🗑️ تم حذف <code>{uid}</code>.")
+
+    except Exception as e:
+        logger.error(f"delete_user error: {e}")
+        return (False, f"❌ خطأ: {e}")

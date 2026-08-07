@@ -22,6 +22,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
+from loguru import logger
 
 from hasad_bot.datetime_utils import datetime, now
 from typing import List, Dict
@@ -674,6 +675,98 @@ DASHBOARD_PAGE = """
         .api-card .api-percent { font-size: 0.82em; color: var(--success); margin-top: 4px; }
         .api-card .api-label { font-size: 0.82em; color: var(--text-secondary); margin-top: 6px; }
 
+        /* ===== Admin Actions ===== */
+        .user-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .action-btn {
+            padding: 8px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: pointer;
+            background: var(--surface);
+            color: var(--text);
+            transition: var(--transition);
+        }
+        .action-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+        .action-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .action-btn-primary { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+        .action-btn-danger { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+        .action-btn-warning { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+        .action-btn-info { background: #cffafe; border-color: #67e8f9; color: #155e75; }
+        .action-btn-ghost { background: transparent; border-color: var(--border); color: var(--text-secondary); }
+
+        /* ===== Action Panels & Messages ===== */
+        .action-msg { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 0.85em; font-weight: 600; margin-bottom: 12px; }
+        .action-msg-success { background: #d1fae5; color: #065f46; }
+        .action-msg-error { background: #fee2e2; color: #991b1b; }
+        .action-panel {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+        .action-panel-danger { background: #fff7f7; border-color: #fecaca; }
+        .action-panel-title { font-weight: 600; margin-bottom: 10px; color: var(--text); font-size: 0.9em; }
+        .action-panel-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+        .action-panel-row label { font-size: 0.85em; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+        .action-panel-btns { display: flex; gap: 8px; margin-top: 10px; }
+        .day-choices { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .day-choice {
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            background: var(--surface);
+            cursor: pointer;
+            font-size: 0.82em;
+            font-weight: 600;
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+        .day-choice:hover { border-color: var(--primary-light); }
+        .day-choice.active { background: var(--primary); border-color: var(--primary); color: white; }
+        .day-custom {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-size: 0.85em;
+            width: 130px;
+            background: var(--surface);
+        }
+        .day-custom:focus { outline: none; border-color: var(--primary-light); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+        .delete-warning {
+            background: #fee2e2;
+            border: 1px solid #fca5a5;
+            color: #991b1b;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 0.85em;
+            margin-bottom: 10px;
+        }
+        .payment-done { opacity: 0.55; }
+
+        /* ===== Toast ===== */
+        .toast {
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2000;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 0.9em;
+            font-weight: 600;
+            color: white;
+            box-shadow: var(--shadow-lg);
+            max-width: 90vw;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast-success { background: #065f46; }
+        .toast-error { background: #991b1b; }
+
         /* ===== Scrollbar ===== */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -770,6 +863,9 @@ DASHBOARD_PAGE = """
                     </button>
                     <button class="tab-btn" data-tab="api" onclick="showTab('api',this)">
                         <span>🔌</span><span class="hide-mobile">APIs</span>
+                    </button>
+                    <button class="tab-btn" data-tab="payments" onclick="showTab('payments',this)">
+                        <span>💳</span><span class="hide-mobile">طلبات الدفع</span>
                     </button>
                 </div>
 
@@ -899,6 +995,30 @@ DASHBOARD_PAGE = """
                                 <div class="api-percent" id="random-percent">0%</div>
                                 <div class="api-label">عشوائي</div>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Payments Tab -->
+                    <div class="tab-pane" id="tab-payments">
+                        <div class="section-header">💳 طلبات الدفع</div>
+                        <div id="payments-msg" class="action-msg" style="display:none"></div>
+                        <div id="payments-panel"></div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>الاسم</th>
+                                        <th>الخطة</th>
+                                        <th>السعر</th>
+                                        <th>طريقة الدفع</th>
+                                        <th>الملاحظة</th>
+                                        <th>الوقت</th>
+                                        <th>الحالة</th>
+                                        <th>إجراءات</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="payments-body"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -1233,6 +1353,7 @@ DASHBOARD_PAGE = """
         else document.querySelector(`[data-tab="${name}"]`)?.classList.add('active');
         document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
         document.getElementById('tab-'+name)?.classList.add('active');
+        if (name === 'payments') loadPaymentRequests();
     }
 
     /* ===== Modal ===== */
@@ -1386,6 +1507,7 @@ DASHBOARD_PAGE = """
             const res = await fetch(`/api/user/${userId}`);
             if (!res.ok) throw new Error('Failed');
             const u = await res.json();
+            currentUserDetail = u;
 
             const html = `
                 <div class="info-grid">
@@ -1400,6 +1522,16 @@ DASHBOARD_PAGE = """
                     <div class="info-item"><div class="label">الأسئلة</div><div class="value">${u.total_questions||0}</div></div>
                     <div class="info-item"><div class="label">آخر نشاط</div><div class="value">${esc(u.last_active||'—')}</div></div>
                 </div>
+                <h3 style="margin-bottom:12px;font-size:1em;color:var(--text)">🛠️ إجراءات</h3>
+                <div class="user-actions" id="user-action-btns">
+                    <button class="action-btn action-btn-primary" data-act="renew" onclick="showRenewPanel()">➕ تجديد</button>
+                    <button class="action-btn action-btn-danger" data-act="revoke" onclick="revokeUser()">🚫 إلغاء الاشتراك</button>
+                    <button class="action-btn action-btn-warning" data-act="unlock" onclick="unlockUser()">🔓 فك القفل</button>
+                    <button class="action-btn action-btn-info" data-act="homework" onclick="showHomeworkPanel()">📝 إضافة واجبات</button>
+                    <button class="action-btn action-btn-danger" data-act="delete" onclick="showDeleteUserConfirm()">🗑️ حذف المستخدم</button>
+                </div>
+                <div id="user-action-msg"></div>
+                <div id="user-action-panel"></div>
                 <h3 style="margin-bottom:12px;font-size:1em;color:var(--text)">📋 آخر النشاطات</h3>
                 <div class="activity-feed">
                     ${(u.recent_activities||[]).map(a => `
@@ -1466,6 +1598,401 @@ DASHBOARD_PAGE = """
             openModal(`🦙 أسئلة Groq (${qs.length})`, html);
         } catch(err) {
             openModal('خطأ', '<div class="empty-state"><div class="text">فشل جلب البيانات</div></div>');
+        }
+    }
+
+    /* ===== Toast ===== */
+    function showToast(text, type) {
+        let toast = document.getElementById('global-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'global-toast';
+            document.body.appendChild(toast);
+        }
+        toast.className = 'toast ' + (type === 'error' ? 'toast-error' : 'toast-success');
+        toast.textContent = text;
+        toast.style.opacity = '1';
+        clearTimeout(toast._t);
+        toast._t = setTimeout(() => { toast.style.opacity = '0'; }, 3500);
+    }
+
+    /* ===== Payment Requests ===== */
+    async function loadPaymentRequests() {
+        setPaymentsMsg('⏳ جاري تحميل طلبات الدفع...', false);
+        try {
+            const res = await fetch('/api/admin/payment-requests');
+            const data = await res.json();
+            if (data.error || data.message) {
+                setPaymentsMsg('⚠️ ' + (data.message || data.error), true);
+                document.getElementById('payments-body').innerHTML = '';
+                return;
+            }
+            renderPaymentRequests(data.requests || []);
+            if ((data.requests || []).length) setPaymentsMsg('', false);
+        } catch(err) {
+            setPaymentsMsg('⚠️ فشل تحميل طلبات الدفع', true);
+            document.getElementById('payments-body').innerHTML = '';
+        }
+    }
+
+    function setPaymentsMsg(text, isError) {
+        const el = document.getElementById('payments-msg');
+        if (!el) return;
+        if (text) {
+            el.textContent = text;
+            el.className = 'action-msg ' + (isError ? 'action-msg-error' : 'action-msg-success');
+            el.style.display = '';
+        } else {
+            el.textContent = '';
+            el.className = 'action-msg';
+            el.style.display = 'none';
+        }
+    }
+
+    function renderPaymentRequests(requests) {
+        const body = document.getElementById('payments-body');
+        if (!requests.length) {
+            body.innerHTML = '<tr><td colspan="8"><div class="empty-state"><div class="icon">💳</div><div class="text">لا توجد طلبات دفع</div></div></td></tr>';
+            return;
+        }
+        // الأحدث أولاً
+        const sorted = requests.slice().sort((a, b) => (b.id || 0) - (a.id || 0));
+        body.innerHTML = sorted.map(r => {
+            const pending = r.status === 'pending';
+            const statusCls = r.status === 'approved' ? 'badge-success' : r.status === 'rejected' ? 'badge-danger' : 'badge-warning';
+            const statusTxt = r.status === 'approved' ? '✅ مفعل' : r.status === 'rejected' ? '❌ مرفوض' : '⏳ قيد الانتظار';
+            return `
+                <tr class="${pending ? '' : 'payment-done'}">
+                    <td style="font-weight:600">${esc(r.user_name)}</td>
+                    <td>${esc(r.plan_name||'—')}</td>
+                    <td>${esc(r.price||'—')}</td>
+                    <td>${esc(r.payment_method||'—')}</td>
+                    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.note||'')}">${esc(r.note||'—')}</td>
+                    <td>${esc(r.created_at||'—')}</td>
+                    <td><span class="badge ${statusCls}">${statusTxt}</span></td>
+                    <td>${pending ? `
+                        <button class="action-btn action-btn-primary" onclick="showActivatePanel(${r.id})">تفعيل</button>
+                        <button class="action-btn action-btn-danger" onclick="showRejectPanel(${r.id})">رفض</button>` : `<span style="color:var(--text-muted);font-size:0.8em">${esc(r.processed_at||'—')}</span>`}
+                    </td>
+                </tr>`;
+        }).join('');
+    }
+
+    let paymentTarget = null;
+    let activateDaysVal = 7;
+
+    function showActivatePanel(rid) {
+        paymentTarget = rid;
+        const p = document.getElementById('payments-panel');
+        p.innerHTML = `
+            <div class="action-panel">
+                <div class="action-panel-title">✅ تفعيل الطلب #${rid} — اختر مدة الاشتراك</div>
+                <div class="day-choices">
+                    <button class="day-choice active" onclick="pickActivateDays(this,7)">7 أيام</button>
+                    <button class="day-choice" onclick="pickActivateDays(this,30)">30 يوم</button>
+                    <button class="day-choice" onclick="pickActivateDays(this,90)">90 يوم</button>
+                    <button class="day-choice" onclick="pickActivateDays(this,0)">مخصص</button>
+                    <input type="number" id="activate-custom-days" class="day-custom" min="1" placeholder="عدد الأيام" style="display:none">
+                </div>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-primary" id="activate-confirm-btn" onclick="confirmActivatePayment()">تأكيد التفعيل</button>
+                    <button class="action-btn action-btn-ghost" onclick="closePaymentPanel()">إلغاء</button>
+                </div>
+            </div>`;
+        p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function pickActivateDays(btn, days) {
+        document.querySelectorAll('#payments-panel .day-choice').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const custom = document.getElementById('activate-custom-days');
+        if (days === 0) {
+            custom.style.display = '';
+            activateDaysVal = null;
+        } else {
+            custom.style.display = 'none';
+            activateDaysVal = days;
+        }
+    }
+
+    async function confirmActivatePayment() {
+        let days = activateDaysVal;
+        if (days === null) {
+            days = parseInt(document.getElementById('activate-custom-days').value, 10);
+            if (!days || days <= 0) { setPaymentsMsg('⚠️ أدخل عدد أيام صالح', true); return; }
+        }
+        const btn = document.getElementById('activate-confirm-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ جاري...';
+        try {
+            const res = await fetch(`/api/admin/payment-requests/${paymentTarget}/activate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ days })
+            });
+            const data = await res.json();
+            if (data.success === false) {
+                setPaymentsMsg('⚠️ ' + (data.message || 'فشل التفعيل'), true);
+                btn.disabled = false;
+                btn.textContent = 'تأكيد التفعيل';
+                return;
+            }
+            setPaymentsMsg('✅ ' + (data.message || 'تم تفعيل الطلب'), false);
+            closePaymentPanel();
+            loadPaymentRequests();
+        } catch(err) {
+            setPaymentsMsg('⚠️ فشل الاتصال بالخادم', true);
+            btn.disabled = false;
+            btn.textContent = 'تأكيد التفعيل';
+        }
+    }
+
+    let rejectReasonVal = null;
+
+    function showRejectPanel(rid) {
+        paymentTarget = rid;
+        const p = document.getElementById('payments-panel');
+        p.innerHTML = `
+            <div class="action-panel action-panel-danger">
+                <div class="action-panel-title">⛔ رفض الطلب #${rid} — اختر السبب</div>
+                <div class="day-choices">
+                    <button class="day-choice" onclick="pickRejectReason(this,'بيانات غير صحيحة')">بيانات غير صحيحة</button>
+                    <button class="day-choice" onclick="pickRejectReason(this,'مبلغ غير مطابق')">مبلغ غير مطابق</button>
+                    <button class="day-choice" onclick="pickRejectReason(this,'الطلب مكرر')">الطلب مكرر</button>
+                    <button class="day-choice" onclick="pickRejectReason(this,'')">مخصص</button>
+                    <input type="text" id="reject-custom-reason" class="day-custom" placeholder="اكتب السبب..." style="display:none">
+                </div>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-danger" id="reject-confirm-btn" onclick="confirmRejectPayment()">تأكيد الرفض</button>
+                    <button class="action-btn action-btn-ghost" onclick="closePaymentPanel()">إلغاء</button>
+                </div>
+            </div>`;
+        p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function pickRejectReason(btn, reason) {
+        document.querySelectorAll('#payments-panel .day-choice').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const custom = document.getElementById('reject-custom-reason');
+        if (reason === '') {
+            custom.style.display = '';
+            rejectReasonVal = null;
+        } else {
+            custom.style.display = 'none';
+            rejectReasonVal = reason;
+        }
+    }
+
+    async function confirmRejectPayment() {
+        let reason = rejectReasonVal;
+        if (reason === null) {
+            reason = document.getElementById('reject-custom-reason').value.trim();
+            if (!reason) { setPaymentsMsg('⚠️ اكتب سبب الرفض', true); return; }
+        }
+        const btn = document.getElementById('reject-confirm-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ جاري...';
+        try {
+            const res = await fetch(`/api/admin/payment-requests/${paymentTarget}/reject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason })
+            });
+            const data = await res.json();
+            if (data.success === false) {
+                setPaymentsMsg('⚠️ ' + (data.message || 'فشل الرفض'), true);
+                btn.disabled = false;
+                btn.textContent = 'تأكيد الرفض';
+                return;
+            }
+            setPaymentsMsg('✅ ' + (data.message || 'تم رفض الطلب'), false);
+            closePaymentPanel();
+            loadPaymentRequests();
+        } catch(err) {
+            setPaymentsMsg('⚠️ فشل الاتصال بالخادم', true);
+            btn.disabled = false;
+            btn.textContent = 'تأكيد الرفض';
+        }
+    }
+
+    function closePaymentPanel() {
+        document.getElementById('payments-panel').innerHTML = '';
+    }
+
+    /* ===== User Admin Actions ===== */
+    let currentUserDetail = null;
+
+    function showUserActionMsg(text, isError) {
+        const el = document.getElementById('user-action-msg');
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'action-msg ' + (isError ? 'action-msg-error' : 'action-msg-success');
+    }
+
+    function clearUserActionPanel() {
+        const p = document.getElementById('user-action-panel');
+        if (p) p.innerHTML = '';
+    }
+
+    async function adminUserAction(url, payload, btn) {
+        let old = '';
+        if (btn) { old = btn.textContent; btn.disabled = true; btn.textContent = '⏳ جاري...'; }
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload || {})
+            });
+            const data = await res.json();
+            if (data.success === false) {
+                showUserActionMsg('⚠️ ' + (data.message || 'حدث خطأ'), true);
+                showToast('⚠️ ' + (data.message || 'حدث خطأ'), 'error');
+                if (btn) { btn.disabled = false; btn.textContent = old; }
+                return null;
+            }
+            showUserActionMsg('✅ ' + (data.message || 'تم بنجاح'), false);
+            showToast('✅ ' + (data.message || 'تم بنجاح'), 'success');
+            return data;
+        } catch(err) {
+            showUserActionMsg('⚠️ فشل الاتصال بالخادم', true);
+            showToast('⚠️ فشل الاتصال بالخادم', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = old; }
+            return null;
+        }
+    }
+
+    let renewDaysVal = 7;
+
+    function showRenewPanel() {
+        const p = document.getElementById('user-action-panel');
+        p.innerHTML = `
+            <div class="action-panel">
+                <div class="action-panel-title">➕ تجديد الاشتراك — ${esc(currentUserDetail.name)}</div>
+                <div class="day-choices">
+                    <button class="day-choice active" onclick="pickRenewDays(this,7)">7 أيام</button>
+                    <button class="day-choice" onclick="pickRenewDays(this,30)">30 يوم</button>
+                    <button class="day-choice" onclick="pickRenewDays(this,90)">90 يوم</button>
+                    <button class="day-choice" onclick="pickRenewDays(this,0)">مخصص</button>
+                    <input type="number" id="renew-custom-days" class="day-custom" min="1" placeholder="عدد الأيام" style="display:none">
+                </div>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-primary" id="renew-confirm-btn" onclick="confirmRenew()">تأكيد</button>
+                    <button class="action-btn action-btn-ghost" onclick="clearUserActionPanel()">إلغاء</button>
+                </div>
+            </div>`;
+    }
+
+    function pickRenewDays(btn, days) {
+        document.querySelectorAll('#user-action-panel .day-choice').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const custom = document.getElementById('renew-custom-days');
+        if (days === 0) {
+            custom.style.display = '';
+            renewDaysVal = null;
+        } else {
+            custom.style.display = 'none';
+            renewDaysVal = days;
+        }
+    }
+
+    async function confirmRenew() {
+        let days = renewDaysVal;
+        if (days === null) {
+            days = parseInt(document.getElementById('renew-custom-days').value, 10);
+            if (!days || days <= 0) { showUserActionMsg('⚠️ أدخل عدد أيام صالح', true); return; }
+        }
+        const data = await adminUserAction(`/api/admin/users/${currentUserDetail.id}/renew`, { days }, document.getElementById('renew-confirm-btn'));
+        if (data) { clearUserActionPanel(); closeModal(); }
+    }
+
+    async function revokeUser() {
+        if (!window.confirm(`هل أنت متأكد من إلغاء اشتراك ${currentUserDetail.name}؟`)) return;
+        const data = await adminUserAction(`/api/admin/users/${currentUserDetail.id}/revoke`, {}, document.querySelector('#user-action-btns [data-act="revoke"]'));
+        if (data) { clearUserActionPanel(); closeModal(); }
+    }
+
+    async function unlockUser() {
+        const data = await adminUserAction(`/api/admin/users/${currentUserDetail.id}/unlock`, {}, document.querySelector('#user-action-btns [data-act="unlock"]'));
+        if (data) { clearUserActionPanel(); closeModal(); }
+    }
+
+    function showHomeworkPanel() {
+        const p = document.getElementById('user-action-panel');
+        p.innerHTML = `
+            <div class="action-panel">
+                <div class="action-panel-title">📝 إضافة واجبات — ${esc(currentUserDetail.name)}</div>
+                <div class="action-panel-row">
+                    <label>العدد: <input type="number" id="hw-count" class="day-custom" min="1" value="1"></label>
+                    <label>النوع:
+                        <select id="hw-kind" class="filter-select" style="padding:8px 12px">
+                            <option value="free">مجاني</option>
+                            <option value="sub">اشتراك</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-primary" id="hw-confirm-btn" onclick="confirmHomework()">تأكيد</button>
+                    <button class="action-btn action-btn-ghost" onclick="clearUserActionPanel()">إلغاء</button>
+                </div>
+            </div>`;
+    }
+
+    async function confirmHomework() {
+        const count = parseInt(document.getElementById('hw-count').value, 10);
+        if (!count || count <= 0) { showUserActionMsg('⚠️ أدخل عدداً صحيحاً', true); return; }
+        const kind = document.getElementById('hw-kind').value;
+        const data = await adminUserAction(`/api/admin/users/${currentUserDetail.id}/homework`, { count, kind }, document.getElementById('hw-confirm-btn'));
+        if (data) { clearUserActionPanel(); closeModal(); }
+    }
+
+    function showDeleteUserConfirm() {
+        const p = document.getElementById('user-action-panel');
+        p.innerHTML = `
+            <div class="action-panel action-panel-danger">
+                <div class="action-panel-title">🗑️ حذف المستخدم</div>
+                <div class="delete-warning">⚠️ تحذير: سيتم حذف المستخدم <b>${esc(currentUserDetail.name)}</b> نهائياً مع جميع بياناته، ولا يمكن التراجع عن هذا الإجراء.</div>
+                <div class="action-panel-row">
+                    <label>اكتب <b>DELETE</b> لتأكيد الحذف:
+                        <input type="text" id="delete-confirm-input" class="day-custom" placeholder="DELETE" oninput="toggleDeleteConfirm(this.value)">
+                    </label>
+                </div>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-danger" id="delete-confirm-btn" onclick="confirmDeleteUser()" disabled>حذف نهائي</button>
+                    <button class="action-btn action-btn-ghost" onclick="clearUserActionPanel()">إلغاء</button>
+                </div>
+            </div>`;
+    }
+
+    function toggleDeleteConfirm(val) {
+        document.getElementById('delete-confirm-btn').disabled = (val !== 'DELETE');
+    }
+
+    async function confirmDeleteUser() {
+        const btn = document.getElementById('delete-confirm-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ جاري...';
+        try {
+            const res = await fetch(`/api/admin/users/${currentUserDetail.id}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: 'DELETE' })
+            });
+            const data = await res.json();
+            if (data.success === false) {
+                showUserActionMsg('⚠️ ' + (data.message || 'فشل الحذف'), true);
+                showToast('⚠️ ' + (data.message || 'فشل الحذف'), 'error');
+                btn.disabled = false;
+                btn.textContent = 'حذف نهائي';
+                return;
+            }
+            showUserActionMsg('✅ ' + (data.message || 'تم حذف المستخدم'), false);
+            showToast('✅ ' + (data.message || 'تم حذف المستخدم'), 'success');
+            closeModal();
+        } catch(err) {
+            showUserActionMsg('⚠️ فشل الاتصال بالخادم', true);
+            showToast('⚠️ فشل الاتصال بالخادم', 'error');
+            btn.disabled = false;
+            btn.textContent = 'حذف نهائي';
         }
     }
 
@@ -1613,11 +2140,11 @@ async def api_verify(request: Request):
     return JSONResponse({"success": False}, status_code=401)
 
 
-@app.get("/api/user/{user_id}")
-async def get_user_details(user_id: int):
+async def _user_detail_payload(user_id: int):
+    """منطق تفاصيل المستخدم المشترك — يُستخدم من /api/user و /api/admin/users"""
     user = await db_get_user(user_id)
     if not user:
-        return JSONResponse({"error": "User not found"}, status_code=404)
+        return None
 
     conn = await _db_pool.get_connection()
 
@@ -1653,6 +2180,14 @@ async def get_user_details(user_id: int):
             } for a in activities
         ]
     }
+
+
+@app.get("/api/user/{user_id}")
+async def get_user_details(user_id: int):
+    data = await _user_detail_payload(user_id)
+    if data is None:
+        return JSONResponse({"error": "User not found"}, status_code=404)
+    return data
 
 
 @app.get("/api/db-questions")
@@ -1937,6 +2472,229 @@ async def get_detail(detail_type: str):
     except Exception as e:
         admin_trace("DETAIL_ERR", f"{detail_type}: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ==============================================================================
+# Routes — Admin API (المستخدمون + طلبات الدفع)
+# ==============================================================================
+
+async def _get_bot():
+    """إنشاء كائن البوت بشكل كسول داخل كل endpoint"""
+    from telegram import Bot
+    return Bot(token=config.bot_token)
+
+
+async def _parse_admin_body(request: Request) -> dict:
+    """قراءة جسم الطلب JSON بأمان — إرجاع dict فارغ عند الفشل"""
+    try:
+        data = await request.json()
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+@app.get("/api/admin/users")
+async def admin_list_users(q: Optional[str] = None, filter: Optional[str] = None):
+    """قائمة المستخدمين مع بحث وفلاتر (بدون كلمات المرور)"""
+    try:
+        users = await db_all_users()
+        query = (q or "").strip().lower()
+        filt = (filter or "all").strip().lower()
+        now_ts = time.time()
+
+        result = []
+        for u in users:
+            uid = u.get("telegram_id")
+
+            # الاشتراك: نفس منطق is_subscribed الحالي
+            is_sub = uid == config.admin_id
+            expiry_ts = u.get("expiry_ts")
+            if not is_sub and expiry_ts:
+                try:
+                    is_sub = now_ts < float(expiry_ts)
+                except (ValueError, TypeError):
+                    pass
+
+            if filt == "subscribed" and not is_sub:
+                continue
+            if filt == "not_subscribed" and is_sub:
+                continue
+            if filt == "admins" and not u.get("is_admin"):
+                continue
+
+            role = u.get("role") or ""
+            is_reseller_flag = role == "reseller" or bool(u.get("is_admin"))
+            if filt == "resellers" and not is_reseller_flag:
+                continue
+
+            platform_user = u.get("dars360_user") or ""
+            if filt == "linked" and not platform_user:
+                continue
+            if filt == "not_linked" and platform_user:
+                continue
+
+            if query:
+                hay = "{} {} {} {}".format(uid, u.get("name") or "", u.get("tg_username") or "", platform_user).lower()
+                if query not in hay:
+                    continue
+
+            last_active = u.get("last_active") or 0
+            result.append({
+                "id": uid,
+                "name": u.get("name") or "",
+                "username": u.get("tg_username") or "",
+                "platform_user": platform_user or None,
+                "is_subscribed": is_sub,
+                "expiry_hijri": u.get("expiry_hijri") or "",
+                "free_attempts": u.get("free_attempts") or 0,
+                "total_hw_solved": u.get("total_hw_solved") or 0,
+                "last_active": datetime.fromtimestamp(last_active).strftime('%Y-%m-%d %H:%M') if last_active else None,
+                "is_admin": bool(u.get("is_admin")),
+                "is_reseller": is_reseller_flag,
+            })
+
+        return {"users": result}
+    except Exception as e:
+        logger.error(f"admin_list_users error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/users/{user_id}")
+async def admin_get_user_detail(user_id: int):
+    """تفاصيل مستخدم — نفس منطق /api/user/{user_id} (كلمات المرور مموهة)"""
+    try:
+        data = await _user_detail_payload(user_id)
+        if data is None:
+            return JSONResponse({"error": "User not found"}, status_code=404)
+        return data
+    except Exception as e:
+        logger.error(f"admin_get_user_detail error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/users/{user_id}/renew")
+async def admin_renew_subscription(user_id: int, request: Request):
+    """تجديد اشتراك مستخدم"""
+    try:
+        body = await _parse_admin_body(request)
+        days = body.get("days")
+        if days is None or not isinstance(days, int) or isinstance(days, bool) or days <= 0:
+            return JSONResponse({"success": False, "message": "عدد الأيام غير صالح"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import renew_subscription
+        success, message = await renew_subscription(bot, user_id, days, actor="dashboard")
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"admin_renew_subscription error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/users/{user_id}/revoke")
+async def admin_revoke_subscription(user_id: int, request: Request):
+    """إلغاء اشتراك مستخدم"""
+    try:
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import revoke_subscription
+        success, message = await revoke_subscription(bot, user_id, actor="dashboard")
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"admin_revoke_subscription error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/users/{user_id}/unlock")
+async def admin_unlock_user(user_id: int, request: Request):
+    """فتح قفل مستخدم"""
+    try:
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import unlock_user
+        success, message = await unlock_user(bot, user_id, actor="dashboard")
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"admin_unlock_user error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/users/{user_id}/homework")
+async def admin_add_homework_credit(user_id: int, request: Request):
+    """إضافة رصيد واجبات لمستخدم"""
+    try:
+        body = await _parse_admin_body(request)
+        count = body.get("count")
+        kind = body.get("kind")
+        if count is None or not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            return JSONResponse({"success": False, "message": "العدد غير صالح"}, status_code=400)
+        if kind not in ("free", "sub"):
+            return JSONResponse({"success": False, "message": "النوع غير صالح"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import add_homework_credit
+        success, message = await add_homework_credit(bot, user_id, count, kind)
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"admin_add_homework_credit error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: int, request: Request):
+    """حذف مستخدم — يتطلب تأكيد DELETE في الجسم"""
+    try:
+        body = await _parse_admin_body(request)
+        if body.get("confirm") != "DELETE":
+            return JSONResponse({"success": False, "message": "مطلوب تأكيد الحذف"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import delete_user
+        success, message = await delete_user(bot, user_id, actor="dashboard")
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"admin_delete_user error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/payment-requests")
+async def admin_list_payment_requests():
+    """قائمة طلبات الدفع — يعيد استخدام دالة جلب الطلبات الموجودة"""
+    try:
+        from hasad_bot.handlers.subscriptions import get_all_payment_requests
+        requests = await get_all_payment_requests()
+        return {"requests": requests}
+    except Exception as e:
+        logger.error(f"admin_list_payment_requests error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/payment-requests/{rid}/activate")
+async def admin_activate_payment_request(rid: int, request: Request):
+    """تفعيل طلب دفع (إعطاء أيام اشتراك)"""
+    try:
+        body = await _parse_admin_body(request)
+        days = body.get("days")
+        if days is None or not isinstance(days, int) or isinstance(days, bool) or days <= 0:
+            return JSONResponse({"success": False, "message": "عدد الأيام غير صالح"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import approve_payment_request
+        success, message = await approve_payment_request(bot, rid, days, actor="dashboard")
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"admin_activate_payment_request error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/payment-requests/{rid}/reject")
+async def admin_reject_payment_request(rid: int, request: Request):
+    """رفض طلب دفع مع سبب"""
+    try:
+        body = await _parse_admin_body(request)
+        reason = body.get("reason")
+        if not reason or not isinstance(reason, str):
+            return JSONResponse({"success": False, "message": "سبب غير صالح"}, status_code=400)
+        bot = await _get_bot()
+        from hasad_bot.admin_ops import reject_payment_request
+        success, message = await reject_payment_request(bot, rid, reason, actor="dashboard")
+        return {"success": success, "message": message}
+    except Exception as e:
+        logger.error(f"admin_reject_payment_request error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
 
 
 @app.get("/test-db")

@@ -20,6 +20,7 @@ from telegram.ext import ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
 
 from hasad_bot.config import MAIN_MENU
+from hasad_bot.admin_ops import approve_payment_request, reject_payment_request
 from hasad_bot.database import (
     _db_pool,
     db_get_user,
@@ -134,6 +135,22 @@ async def get_all_payment_requests() -> List[Dict]:
 # ==============================================================================
 # Admin: list / view / approve / reject
 # ==============================================================================
+
+async def _get_pending_request_id(target_uid: int) -> int:
+    """جلب أحدث معرّف طلب دفع pending لمستخدم (0 إذا لا يوجد)"""
+    try:
+        conn = await _db_pool.get_connection()
+        async with conn.execute("""
+            SELECT id FROM payment_requests
+            WHERE user_id = ? AND status = 'pending'
+            ORDER BY created_at DESC LIMIT 1
+        """, (target_uid,)) as cursor:
+            row = await cursor.fetchone()
+        return row[0] if row else 0
+    except Exception as e:
+        print(f"❌ Error getting pending request id: {e}")
+        return 0
+
 
 async def show_all_requests_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض جميع طلبات الدفع - الأزرار لا تختفي"""
@@ -255,58 +272,12 @@ async def set_days_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     days = int(parts[1])
     target_uid = int(parts[2])
 
-    u = await db_get_user(target_uid)
-    if not u:
-        await query.edit_message_text(f"❌ المستخدم {target_uid} غير موجود")
+    request_id = await _get_pending_request_id(target_uid)
+    if not request_id:
+        await query.edit_message_text("❌ لا يوجد طلب دفع pending لهذا المستخدم.")
         return
 
-    # ✅ حساب تواريخ الاشتراك
-    cur_exp = u.get("expiry_ts", 0) or 0
-    if cur_exp < now_timestamp():
-        cur_exp = now_timestamp()
-
-    new_exp = cur_exp + days * 86400
-    exp_h = gregorian_to_hijri(datetime.fromtimestamp(new_exp))
-    # ✅ تحديث جدول users
-    await db_set_user(target_uid, expiry_ts=new_exp, expiry_hijri=exp_h)
-
-    # ✅ تحديد الخطة حسب عدد الأيام
-    if days <= 7:
-        plan_id = "weekly"
-        max_homeworks = 25
-    elif days <= 30:
-        plan_id = "monthly"
-        max_homeworks = 100
-    else:
-        plan_id = "semester"
-        max_homeworks = 200
-
-    conn = await _db_pool.get_connection()
-
-    # إلغاء الاشتراكات القديمة
-    await conn.execute("""
-        UPDATE user_subscriptions SET is_active = 0
-        WHERE user_id = ? AND is_active = 1
-    """, (target_uid,))
-
-    # إنشاء اشتراك جديد
-    await conn.execute("""
-        INSERT INTO user_subscriptions
-        (user_id, plan_id, start_date, end_date, max_homeworks, homeworks_used, is_active)
-        VALUES (?, ?, ?, ?, ?, 0, 1)
-    """, (target_uid, plan_id, cur_exp, new_exp, max_homeworks))
-    await conn.commit()
-
-    # ✅ تحديث طلب الدفع
-    try:
-        await conn.execute("""
-            UPDATE payment_requests
-            SET status = 'approved', processed_at = ?, processed_by = ?
-            WHERE user_id = ? AND status = 'pending'
-        """, (time.time(), query.from_user.id, target_uid))
-        await conn.commit()
-    except:
-        pass
+    ok, msg = await approve_payment_request(context.bot, request_id, days, actor="telegram")
 
     # أزرار ثابتة بعد التفعيل
     keyboard = InlineKeyboardMarkup([
@@ -315,29 +286,10 @@ async def set_days_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     await query.edit_message_text(
-        f"✅ <b>تم التفعيل بنجاح!</b>\n\n"
-        f"👤 المستخدم: <code>{target_uid}</code>\n"
-        f"📅 المدة: {days} يوم\n"
-        f"📦 الخطة: {plan_id} ({max_homeworks} واجب)\n"
-        f"📆 الانتهاء: {exp_h}",
+        msg,
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard
     )
-
-    # إشعار للمستخدم
-    try:
-        await context.bot.send_message(
-            target_uid,
-            f"🎉 <b>تم تفعيل اشتراكك!</b> 🎉\n\n"
-            f"📦 <b>الخطة:</b> {plan_id}\n"
-            f"📚 <b>الواجبات:</b> {max_homeworks} واجب\n"
-            f"📅 <b>المدة:</b> +{days} يوم\n"
-            f"📆 <b>الانتهاء:</b> {exp_h}\n\n"
-            f"🚀 استمتع بحل الواجبات!",
-            parse_mode=ParseMode.HTML
-        )
-    except:
-        pass
 
 
 async def custom_days_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -388,77 +340,17 @@ async def handle_custom_days_input(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text("❌ عدد الأيام يجب أن يكون أكبر من 0")
             return AWAIT_CUSTOM_DAYS
 
-        u = await db_get_user(target_uid)
-        cur_exp = u.get("expiry_ts", 0) or 0
-        if cur_exp < now_timestamp():
-            cur_exp = now_timestamp()
+        request_id = await _get_pending_request_id(target_uid)
+        if not request_id:
+            await update.message.reply_text("❌ لا يوجد طلب دفع pending لهذا المستخدم.")
+            return ConversationHandler.END
 
-        new_exp = cur_exp + days * 86400
-        exp_h = gregorian_to_hijri(datetime.fromtimestamp(new_exp))
-        # ✅ تحديث جدول users
-        await db_set_user(target_uid, expiry_ts=new_exp, expiry_hijri=exp_h)
-
-        # ✅ تحديد الخطة حسب عدد الأيام
-        if days <= 7:
-            plan_id = "weekly"
-            max_homeworks = 25
-        elif days <= 30:
-            plan_id = "monthly"
-            max_homeworks = 100
-        else:
-            plan_id = "semester"
-            max_homeworks = 200
-
-        conn = await _db_pool.get_connection()
-
-        # إلغاء الاشتراكات القديمة
-        await conn.execute("""
-            UPDATE user_subscriptions SET is_active = 0
-            WHERE user_id = ? AND is_active = 1
-        """, (target_uid,))
-
-        # إنشاء اشتراك جديد
-        await conn.execute("""
-            INSERT INTO user_subscriptions
-            (user_id, plan_id, start_date, end_date, max_homeworks, homeworks_used, is_active)
-            VALUES (?, ?, ?, ?, ?, 0, 1)
-        """, (target_uid, plan_id, cur_exp, new_exp, max_homeworks))
-        await conn.commit()
-
-        # تحديث طلب الدفع
-        try:
-            await conn.execute("""
-                UPDATE payment_requests
-                SET status = 'approved', processed_at = ?, processed_by = ?
-                WHERE user_id = ? AND status = 'pending'
-            """, (time.time(), uid, target_uid))
-            await conn.commit()
-        except:
-            pass
+        ok, msg = await approve_payment_request(context.bot, request_id, days, actor="telegram")
 
         await update.message.reply_text(
-            f"✅ <b>تم التفعيل!</b>\n\n"
-            f"👤 المستخدم: <code>{target_uid}</code>\n"
-            f"📅 المدة: {days} يوم\n"
-            f"📦 الخطة: {plan_id} ({max_homeworks} واجب)\n"
-            f"📆 الانتهاء: {exp_h}",
+            msg,
             parse_mode=ParseMode.HTML
         )
-
-        # إشعار للمستخدم
-        try:
-            await context.bot.send_message(
-                target_uid,
-                f"🎉 <b>تم تفعيل اشتراكك!</b> 🎉\n\n"
-                f"📦 <b>الخطة:</b> {plan_id}\n"
-                f"📚 <b>الواجبات:</b> {max_homeworks} واجب\n"
-                f"📅 <b>المدة:</b> +{days} يوم\n"
-                f"📆 <b>الانتهاء:</b> {exp_h}\n\n"
-                f"🚀 استمتع بحل الواجبات!",
-                parse_mode=ParseMode.HTML
-            )
-        except:
-            pass
 
         return ConversationHandler.END
 
@@ -559,29 +451,12 @@ async def reject_reason_callback(update: Update, context: ContextTypes.DEFAULT_T
     }
     reason_text = reasons.get(reason_key, "تم رفض طلب الاشتراك من قبل الإدارة")
 
-    # ✅ تحديث طلب الدفع
-    try:
-        conn = await _db_pool.get_connection()
-        await conn.execute("""
-            UPDATE payment_requests
-            SET status = 'rejected', processed_at = ?, processed_by = ?
-            WHERE user_id = ? AND status = 'pending'
-        """, (time.time(), query.from_user.id, target_uid))
-        await conn.commit()
-    except:
-        pass
+    request_id = await _get_pending_request_id(target_uid)
+    if not request_id:
+        await query.edit_message_text("❌ لا يوجد طلب دفع pending لهذا المستخدم.")
+        return
 
-    # ✅ إشعار للمستخدم
-    try:
-        await context.bot.send_message(
-            target_uid,
-            f"❌ <b>تم رفض طلب الاشتراك</b>\n\n"
-            f"📌 <b>السبب:</b> {reason_text}\n\n"
-            f"💡 للاستفسار، تواصل مع الدعم الفني.",
-            parse_mode=ParseMode.HTML
-        )
-    except:
-        pass
+    ok, msg = await reject_payment_request(context.bot, request_id, reason_text, actor="telegram")
 
     # ✅ أزرار ثابتة بعد الرفض
     keyboard = InlineKeyboardMarkup([
@@ -591,9 +466,7 @@ async def reject_reason_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     # ✅ تعديل الرسالة الحالية
     await query.edit_message_text(
-        f"✅ <b>تم رفض الطلب!</b>\n\n"
-        f"👤 المستخدم: <code>{target_uid}</code>\n"
-        f"📌 السبب: {reason_text}",
+        msg,
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard
     )
@@ -620,35 +493,16 @@ async def handle_custom_reject(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("❌ الرجاء كتابة سبب الرفض\nأرسل السبب:")
         return AWAIT_CUSTOM_REASON
 
-    # ✅ تحديث طلب الدفع
-    try:
-        conn = await _db_pool.get_connection()
-        await conn.execute("""
-            UPDATE payment_requests
-            SET status = 'rejected', processed_at = ?, processed_by = ?
-            WHERE user_id = ? AND status = 'pending'
-        """, (time.time(), uid, target_uid))
-        await conn.commit()
-    except:
-        pass
+    request_id = await _get_pending_request_id(target_uid)
+    if not request_id:
+        await update.message.reply_text("❌ لا يوجد طلب دفع pending لهذا المستخدم.")
+        return ConversationHandler.END
 
-    # ✅ إرسال الرفض للمستخدم مع السبب المخصص
-    try:
-        await context.bot.send_message(
-            target_uid,
-            f"❌ <b>تم رفض طلب الاشتراك</b>\n\n"
-            f"📌 <b>السبب:</b> {reason_text}\n\n"
-            f"💡 للاستفسار، تواصل مع الدعم الفني.",
-            parse_mode=ParseMode.HTML
-        )
-    except Exception as e:
-        await update.message.reply_text(f"❌ فشل الإرسال للمستخدم: {e}")
+    ok, msg = await reject_payment_request(context.bot, request_id, reason_text, actor="telegram")
 
     # ✅ رسالة تأكيد للإدارة
     await update.message.reply_text(
-        f"✅ <b>تم رفض الطلب بنجاح!</b>\n\n"
-        f"👤 المستخدم: <code>{target_uid}</code>\n"
-        f"📌 السبب: {reason_text}",
+        msg,
         parse_mode=ParseMode.HTML
     )
 
