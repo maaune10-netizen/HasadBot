@@ -23,7 +23,6 @@ from .pool import db_pool
 async def db_get_user(uid: int) -> Optional[Dict]:
     """Get user by ID"""
     conn = await db_pool.get_connection()
-    conn.row_factory = aiosqlite.Row
     async with conn.execute("SELECT * FROM users WHERE telegram_id=?", (uid,)) as c:
         r = await c.fetchone()
         return dict(r) if r else None
@@ -32,7 +31,6 @@ async def db_get_user(uid: int) -> Optional[Dict]:
 async def db_get_user_by_platform(platform_user: str) -> Optional[Dict]:
     """Get user by platform username"""
     conn = await db_pool.get_connection()
-    conn.row_factory = aiosqlite.Row
     async with conn.execute("SELECT * FROM users WHERE dars360_user=?", (platform_user,)) as c:
         r = await c.fetchone()
         return dict(r) if r else None
@@ -57,7 +55,6 @@ async def db_set_user(uid: int, **fields):
 async def db_all_users() -> List[Dict]:
     """Get all users"""
     conn = await db_pool.get_connection()
-    conn.row_factory = aiosqlite.Row
     async with conn.execute("SELECT * FROM users ORDER BY created_at DESC") as c:
         return [dict(r) for r in await c.fetchall()]
 
@@ -67,7 +64,6 @@ async def db_get_vip_users() -> List[Dict]:
     conn = await db_pool.get_connection()
     now_ts = now_timestamp()
 
-    conn.row_factory = aiosqlite.Row
     async with conn.execute(
         "SELECT * FROM users WHERE expiry_ts > ? AND radar_enabled = 1",
         (now_ts,)

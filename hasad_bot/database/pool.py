@@ -58,10 +58,12 @@ class DatabasePool:
             self._connection = await aiosqlite.connect(self.db_path)
             await self._connection.execute("PRAGMA journal_mode=WAL")
             await self._connection.execute("PRAGMA foreign_keys=ON")
+            self._connection.row_factory = aiosqlite.Row
             await self._create_tables()
 
             self._harvest_connection = await aiosqlite.connect(self.harvest_path)
             await self._harvest_connection.execute("PRAGMA journal_mode=WAL")
+            self._harvest_connection.row_factory = aiosqlite.Row
             await self._create_harvest_tables()
 
             await self._create_indexes()
@@ -536,8 +538,6 @@ class DatabasePool:
             await self._connection.execute("CREATE INDEX IF NOT EXISTS idx_users_rank ON users(rank_title)")
             await self._connection.execute("CREATE INDEX IF NOT EXISTS idx_users_parent_admin ON users(parent_admin_id)")
 
-            await self._connection.execute("CREATE INDEX IF NOT EXISTS idx_exam_cache ON exam_cache(exam_id, question_num)")
-
             await self._connection.execute("CREATE INDEX IF NOT EXISTS idx_txlog_from ON transaction_log(from_user_id)")
             await self._connection.execute("CREATE INDEX IF NOT EXISTS idx_txlog_to ON transaction_log(to_user_id)")
             await self._connection.execute("CREATE INDEX IF NOT EXISTS idx_txlog_time ON transaction_log(created_at)")
@@ -581,6 +581,7 @@ class DatabasePool:
             self._knowledge_connection_async = await aiosqlite.connect(config.knowledge_db, timeout=60)
             await self._knowledge_connection_async.execute("PRAGMA journal_mode=WAL")
             await self._knowledge_connection_async.execute("PRAGMA synchronous=NORMAL")
+            self._knowledge_connection_async.row_factory = aiosqlite.Row
             await self._knowledge_connection_async.execute('''
                 CREATE TABLE IF NOT EXISTS knowledge
                 (subject_name TEXT, img_uuid TEXT UNIQUE, full_img_url TEXT,
@@ -612,6 +613,7 @@ class DatabasePool:
                 )
                 await new_conn.execute("PRAGMA journal_mode=WAL")
                 await new_conn.execute("PRAGMA busy_timeout=30000")
+                new_conn.row_factory = aiosqlite.Row
                 self._connection_pool.append(new_conn)
                 logger.info(f"🔗 New pooled connection created | Pool size: {len(self._connection_pool)}")
                 return new_conn

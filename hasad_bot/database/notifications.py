@@ -75,7 +75,6 @@ async def get_user_notifications(user_id: int, unread_only: bool = False) -> Lis
     """جلب إشعارات المستخدم"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         query = "SELECT * FROM notifications WHERE user_id = ?"
         params = [user_id]
@@ -166,7 +165,6 @@ async def get_user_tickets(user_id: int) -> List[Dict]:
     """جلب تذاكر الدعم لمستخدم معين"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         tickets = []
         async with conn.execute("""

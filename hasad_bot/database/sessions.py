@@ -100,7 +100,6 @@ async def get_user_homework_sessions(user_id: int, limit: int = 10) -> List[Dict
     """جلب جلسات حل الواجبات لمستخدم معين"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         sessions = []
         async with conn.execute("""

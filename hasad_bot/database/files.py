@@ -128,7 +128,6 @@ async def get_image_path(file_id: str) -> Optional[str]:
     """الحصول على المسار المحلي للصورة من معرفها"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         async with conn.execute(
             "SELECT local_path FROM stored_images WHERE file_id = ?", (file_id,)

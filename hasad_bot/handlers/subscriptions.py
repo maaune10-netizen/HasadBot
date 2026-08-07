@@ -104,7 +104,6 @@ async def get_all_payment_requests() -> List[Dict]:
 
     try:
         conn = await _db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         requests = []
         async with conn.execute("""

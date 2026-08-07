@@ -117,7 +117,6 @@ async def get_plan_by_id(plan_id: str) -> Optional[Dict]:
         return _plan_cache[plan_id]
 
     conn = await db_pool.get_connection()
-    conn.row_factory = aiosqlite.Row
     async with conn.execute(
         "SELECT * FROM subscription_plans WHERE plan_id = ? AND is_active = 1",
         (plan_id,)
@@ -134,7 +133,6 @@ async def get_plan_by_id(plan_id: str) -> Optional[Dict]:
 async def get_all_plans() -> List[Dict]:
     """جلب كل الخطط النشطة"""
     conn = await db_pool.get_connection()
-    conn.row_factory = aiosqlite.Row
     async with conn.execute(
         "SELECT * FROM subscription_plans WHERE is_active = 1 ORDER BY price"
     ) as c:
@@ -226,7 +224,6 @@ async def _get_user_subscription_from_db(uid: int) -> Optional[Dict]:
     """Actual DB query for subscription (called by cached get_user_subscription)."""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         async with conn.execute("""
             SELECT

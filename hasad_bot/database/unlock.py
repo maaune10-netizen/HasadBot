@@ -83,7 +83,6 @@ async def get_pending_unlock_requests() -> List[Dict]:
     """جلب طلبات فك القفل المعلقة"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         requests = []
         async with conn.execute("""
@@ -205,7 +204,6 @@ async def get_all_archived_credentials(limit: int = 50):
     """جلب جميع البيانات المؤرشفة (للإدارة)"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         async with conn.execute("""
             SELECT * FROM archived_credentials
@@ -223,7 +221,6 @@ async def get_archived_by_user_id(user_id: int):
     """جلب بيانات مؤرشفة لمستخدم معين"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         async with conn.execute("""
             SELECT * FROM archived_credentials

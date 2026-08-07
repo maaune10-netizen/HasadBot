@@ -21,7 +21,6 @@ async def get_user_total_stats(uid: int) -> Dict[str, int]:
     """استرجاع إجمالي إحصائيات المستخدم من جدول users وجدول solved_questions"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         async with conn.execute("""
             SELECT
@@ -76,7 +75,6 @@ async def get_user_reports_days(uid: int) -> List[Dict]:
     """جلب قائمة الأيام التي حل فيها المستخدم واجبات"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         reports = []
         async with conn.execute("""
@@ -104,7 +102,6 @@ async def get_user_report_by_date(uid: int, date_str: str) -> List[Dict]:
     """جلب كل واجبات المستخدم في يوم محدد"""
     try:
         conn = await db_pool.get_connection()
-        conn.row_factory = aiosqlite.Row
 
         reports = []
         async with conn.execute("""
