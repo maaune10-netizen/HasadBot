@@ -2833,7 +2833,7 @@ DASHBOARD_PAGE = """
             }
             setLogsMsg('', false);
             const lines = data.lines || [];
-            box.innerHTML = (lines.length ? lines.map(l => esc(l)).join('\n') : esc('(سجل فارغ)'));
+            box.innerHTML = (lines.length ? lines.map(l => esc(l)).join('\\n') : esc('(سجل فارغ)'));
             box.scrollTop = box.scrollHeight;
         } catch (err) {
             if (!silent) setLogsMsg('⚠️ فشل الاتصال بالخادم', true);
