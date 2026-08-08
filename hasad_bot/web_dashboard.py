@@ -1220,6 +1220,7 @@ DASHBOARD_PAGE = """
     let sourcesChart = null, activityChart = null;
     let allUsers = [], allQuestions = [];
     let ws = null, wsRetries = 0;
+    let wsGotData = false;
     const MAX_RETRIES = 10;
     const startTime = Date.now();
 
@@ -1232,9 +1233,36 @@ DASHBOARD_PAGE = """
     }
 
     /* ===== WebSocket ===== */
+    let restPollTimer = null;
+    let restFallbackStarted = false;
+
+    function startRestFallback() {
+        if (restFallbackStarted) return;
+        restFallbackStarted = true;
+        const tick = async () => {
+            try {
+                const res = await fetch('/api/live');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.stats) updateDashboard(data);
+                    const st = document.getElementById('ws-status');
+                    if (st) { st.className = 'ws-status ws-connected'; st.innerHTML = '<span class="status-dot status-online"></span> متصل (REST)'; }
+                }
+            } catch(err) { /* أعد المحاولة في الدورة القادمة */ }
+        };
+        tick();
+        restPollTimer = setInterval(tick, 3000);
+    }
+
+    function stopRestFallback() {
+        if (restPollTimer) { clearInterval(restPollTimer); restPollTimer = null; }
+    }
+
     function connectWS() {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(`${proto}//${location.host}/ws`);
+        // إذا لم تصل بيانات ws خلال 6 ثوانٍ → نبدأ الـ REST fallback
+        const fallbackTimer = setTimeout(() => { if (!wsGotData) startRestFallback(); }, 6000);
 
         ws.onopen = () => {
             wsRetries = 0;
@@ -1245,6 +1273,9 @@ DASHBOARD_PAGE = """
         ws.onmessage = (e) => {
             try {
                 const data = JSON.parse(e.data);
+                wsGotData = true;
+                clearTimeout(fallbackTimer);
+                stopRestFallback();
                 updateDashboard(data);
             } catch(err) { console.error('Parse error:', err); }
         };
@@ -3970,6 +4001,16 @@ async def test_database(request: Request, _user: str = Depends(require_auth)):
 # WebSocket
 # ==============================================================================
 
+@app.get("/api/live")
+async def api_live(request: Request):
+    """نفس حمولة الـ WebSocket عبر REST — fallback للمتصفحات التي تحجب ws"""
+    try:
+        return await get_dashboard_data()
+    except Exception as e:
+        logger.error(f"api_live error: {e}")
+        return JSONResponse({"error": "حدث خطأ داخلي"}, status_code=500)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # التحقق من الجلسة قبل السماح بالاتصال (نفس منطق IP الخاص بـ auth)
@@ -3982,6 +4023,7 @@ async def websocket_endpoint(websocket: WebSocket):
         ip = real_ip if real_ip else (websocket.client.host if websocket.client else "unknown")
     payload = auth_manager.verify_session_token(token, ip)
     if not payload:
+        logger.warning(f"WebSocket auth rejected: ip={ip}, token_present={bool(token)}")
         await websocket.close(code=1008)
         return
     await manager.connect(websocket)
