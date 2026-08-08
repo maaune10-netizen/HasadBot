@@ -112,3 +112,6 @@ stats_*.json
 
 # Local test sandboxes
 /_test_data*/
+
+# review artifacts
+/_review_*.diff
