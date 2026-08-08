@@ -4303,6 +4303,10 @@ async def get_groq_questions():
 @app.get("/api/detail/{detail_type}")
 async def get_detail(detail_type: str):
     """جلب تفاصيل لأي بطاقة إحصائية"""
+    # ✅ TTL Cache أولاً — نتجنب استعلامات DB كلياً عند الضربة
+    cached = _DETAIL_CACHE.get(detail_type)
+    if cached is not None and (time.time() - cached["ts"]) < _DETAIL_TTL:
+        return JSONResponse(cached["payload"])
     try:
         conn = await _db_pool.get_connection()
         now_ts = time.time()
@@ -4326,7 +4330,7 @@ async def get_detail(detail_type: str):
                     rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "username": row[2] or '—',
                                  "platform": row[3] or '—', "subscribed": is_sub, "free": row[5] or 0,
                                  "hw": row[6] or 0, "last_active": la})
-            return JSONResponse({"title": "👥 إجمالي المستخدمين", "count": len(rows), "type": "users", "data": rows})
+            payload = {"title": "👥 إجمالي المستخدمين", "count": len(rows), "type": "users", "data": rows}
 
         elif detail_type == "active-now":
             rows = []
@@ -4340,7 +4344,7 @@ async def get_detail(detail_type: str):
                         except: la = "—"
                     in_session = row[0] in active_sessions
                     rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "last_active": la, "in_session": in_session})
-            return JSONResponse({"title": "⚡ نشطين الآن", "count": len(rows), "type": "table", "data": rows})
+            payload = {"title": "⚡ نشطين الآن", "count": len(rows), "type": "table", "data": rows}
 
         elif detail_type == "active-today":
             rows = []
@@ -4353,7 +4357,7 @@ async def get_detail(detail_type: str):
                         try: la = datetime.fromtimestamp(float(row[2])).strftime('%H:%M:%S')
                         except: la = "—"
                     rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "last_active": la})
-            return JSONResponse({"title": "📆 نشطين اليوم", "count": len(rows), "type": "table", "data": rows})
+            payload = {"title": "📆 نشطين اليوم", "count": len(rows), "type": "table", "data": rows}
 
         elif detail_type == "subscribers":
             rows = []
@@ -4366,7 +4370,7 @@ async def get_detail(detail_type: str):
                     except: days_left = 0
                     rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "expiry": row[3] or '—',
                                  "days_left": days_left, "hw": row[4] or 0, "free": row[5] or 0})
-            return JSONResponse({"title": "👑 المشتركون", "count": len(rows), "type": "subscribers", "data": rows})
+            payload = {"title": "👑 المشتركون", "count": len(rows), "type": "subscribers", "data": rows}
 
         elif detail_type == "finished-free":
             rows = []
@@ -4381,7 +4385,7 @@ async def get_detail(detail_type: str):
                         try: la = datetime.fromtimestamp(float(row[3])).strftime('%Y-%m-%d %H:%M')
                         except: la = "—"
                     rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "hw": row[2] or 0, "last_active": la})
-            return JSONResponse({"title": "⛔ خلصت مجانيهم", "count": len(rows), "type": "table", "data": rows})
+            payload = {"title": "⛔ خلصت مجانيهم", "count": len(rows), "type": "table", "data": rows}
 
         elif detail_type == "remaining-free":
             rows = []
@@ -4396,7 +4400,7 @@ async def get_detail(detail_type: str):
                         except: la = "—"
                     rows.append({"id": row[0], "name": row[1] or f"User {row[0]}", "free": row[2] or 0,
                                  "hw": row[3] or 0, "last_active": la})
-            return JSONResponse({"title": "🎁 لسه عندهم مجاني", "count": len(rows), "type": "table", "data": rows})
+            payload = {"title": "🎁 لسه عندهم مجاني", "count": len(rows), "type": "table", "data": rows}
 
         elif detail_type == "total-hw":
             rows = []
@@ -4414,7 +4418,7 @@ async def get_detail(detail_type: str):
                     rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
                                  "user_id": row[0], "subject": row[1] or '—', "total": row[2] or 0,
                                  "correct": row[3] or 0, "wrong": row[4] or 0, "pct": pct, "duration": duration})
-            return JSONResponse({"title": "📚 إجمالي الواجبات", "count": len(rows), "type": "homeworks", "data": rows})
+            payload = {"title": "📚 إجمالي الواجبات", "count": len(rows), "type": "homeworks", "data": rows}
 
         elif detail_type == "total-questions":
             rows = []
@@ -4430,7 +4434,7 @@ async def get_detail(detail_type: str):
                                  "question": details.get('question', 'سؤال')[:60],
                                  "source": (row[1] or 'db').lower(),
                                  "time": datetime.fromtimestamp(row[3]).strftime('%Y-%m-%d %H:%M')})
-            return JSONResponse({"title": "📝 إجمالي الأسئلة", "count": len(rows), "type": "questions", "data": rows})
+            payload = {"title": "📝 إجمالي الأسئلة", "count": len(rows), "type": "questions", "data": rows}
 
         elif detail_type == "correct":
             rows = []
@@ -4443,7 +4447,7 @@ async def get_detail(detail_type: str):
                     user = await db_get_user(row[0])
                     rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
                                  "subject": row[1] or '—', "correct": row[2] or 0, "total": row[3] or 0})
-            return JSONResponse({"title": "✅ إجابات صحيحة", "count": len(rows), "type": "table", "data": rows})
+            payload = {"title": "✅ إجابات صحيحة", "count": len(rows), "type": "table", "data": rows}
 
         elif detail_type == "wrong":
             rows = []
@@ -4456,7 +4460,7 @@ async def get_detail(detail_type: str):
                     user = await db_get_user(row[0])
                     rows.append({"user": user.get('name', str(row[0])) if user else str(row[0]),
                                  "subject": row[1] or '—', "wrong": row[2] or 0, "total": row[3] or 0})
-            return JSONResponse({"title": "❌ إجابات خاطئة", "count": len(rows), "type": "table", "data": rows})
+            payload = {"title": "❌ إجابات خاطئة", "count": len(rows), "type": "table", "data": rows}
 
         elif detail_type == "gemini":
             rows = []
@@ -4472,7 +4476,7 @@ async def get_detail(detail_type: str):
                                  "user_id": row[0], "subject": details.get('subject', 'غير معروف'),
                                  "question": details.get('question', 'سؤال'),
                                  "time": datetime.fromtimestamp(row[2]).strftime('%Y-%m-%d %H:%M:%S')})
-            return JSONResponse({"title": "✨ Gemini", "count": len(rows), "type": "questions", "data": rows})
+            payload = {"title": "✨ Gemini", "count": len(rows), "type": "questions", "data": rows}
 
         elif detail_type == "random":
             rows = []
@@ -4488,7 +4492,7 @@ async def get_detail(detail_type: str):
                                  "user_id": row[0], "subject": details.get('subject', 'غير معروف'),
                                  "question": details.get('question', 'سؤال'),
                                  "time": datetime.fromtimestamp(row[2]).strftime('%Y-%m-%d %H:%M:%S')})
-            return JSONResponse({"title": "🎲 حل عشوائي", "count": len(rows), "type": "questions", "data": rows})
+            payload = {"title": "🎲 حل عشوائي", "count": len(rows), "type": "questions", "data": rows}
 
         elif detail_type == "errors":
             rows = []
@@ -4501,7 +4505,7 @@ async def get_detail(detail_type: str):
                     rows.append({"user_id": row[0], "event": row[1],
                                  "message": row[2][:80] if row[2] else '—',
                                  "time": datetime.fromtimestamp(row[3]).strftime('%Y-%m-%d %H:%M:%S')})
-            return JSONResponse({"title": "⚠️ الأخطاء", "count": len(rows), "type": "errors", "data": rows})
+            payload = {"title": "⚠️ الأخطاء", "count": len(rows), "type": "errors", "data": rows}
 
         elif detail_type == "system":
             try:
@@ -4522,10 +4526,13 @@ async def get_detail(detail_type: str):
                 }
             except ImportError:
                 data = {"error": "psutil not installed"}
-            return JSONResponse({"title": "💻 معلومات النظام", "count": 0, "type": "system", "data": data})
+            payload = {"title": "💻 معلومات النظام", "count": 0, "type": "system", "data": data}
 
         else:
             return JSONResponse({"error": "نوع غير معروف"}, status_code=400)
+
+        _DETAIL_CACHE[detail_type] = {"payload": payload, "ts": time.time()}
+        return JSONResponse(payload)
 
     except Exception as e:
         admin_trace("DETAIL_ERR", f"{detail_type}: {e}")
@@ -5537,6 +5544,10 @@ async def get_recent_errors(limit: int = 10):
 # ✅ L1 Cache — لتخفيف الحمل عن DB (WebSocket يسأل كل 3s)
 _DASHBOARD_CACHE = {"data": None, "ts": 0.0}
 _DASHBOARD_TTL = config.dashboard_cache_ttl
+
+# ✅ L1 Cache — لبطاقات /api/detail/{type} (نفس نمط TTL)
+_DETAIL_CACHE: Dict[str, dict] = {}
+_DETAIL_TTL = config.dashboard_cache_ttl
 
 async def get_dashboard_data():
     # ✅ L1 TTL Cache: WebSocket يستدعي كل 3 ثوانٍ — نخفف الحمل

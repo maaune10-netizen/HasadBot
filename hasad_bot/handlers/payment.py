@@ -189,6 +189,16 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
     except:
         plan_id = "monthly"
 
+    # منع تفعيل نفس الدفع أكثر من مرة (إعادة تسليم الرسالة من تيليجرام)
+    # الفحص SELECT أولاً — التسجيل الفعلي يتم بعد نجاح التفعيل فقط،
+    # حتى لا يُسجَّل دفع "معالج" دون تفعيل (خطأ المراجعة)
+    charge_id = getattr(payment, 'telegram_payment_charge_id', None)
+    if charge_id:
+        from hasad_bot.database import is_stars_payment_processed
+        if await is_stars_payment_processed(charge_id):
+            await update.message.reply_text("✅ تم تفعيل هذا الدفع مسبقاً")
+            return
+
     config_plans = (await _load_payment_config()).get("plans", {}) or {}
     plan = config_plans.get(plan_id) or config_plans.get("monthly") or {}
     if not plan or plan.get("is_active") != 1:
@@ -213,6 +223,11 @@ async def successful_payment_handler(update: Update, context: ContextTypes.DEFAU
 
     # تسجيل العملية
     await db_log(uid, "STARS_PAYMENT", detail=f"Plan: {plan_id}, Stars: {stars_amount}")
+
+    # ✅ تسجيل الـ charge بعد نجاح التفعيل (best-effort — لا يمنع التفعيل عند فشله)
+    if charge_id:
+        from hasad_bot.database import mark_stars_payment_processed
+        await mark_stars_payment_processed(charge_id, uid, plan_id, stars_amount)
 
     # إرسال رسالة نجاح
     await update.message.reply_text(

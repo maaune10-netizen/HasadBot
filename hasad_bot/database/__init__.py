@@ -47,6 +47,7 @@ Public surface (all names below are importable as `from hasad_bot.database impor
                          log_admin_action, log_login_attempt, populate_login_logs_from_history
   Payment settings:      ensure_payment_settings, get_payment_config,
                          apply_plan_update, apply_payment_settings_update
+  Payments:              mark_stars_payment_processed
 """
 
 # Pool — the shared singleton
@@ -138,6 +139,9 @@ from .payment_settings import (
     apply_plan_update, apply_payment_settings_update,
 )
 
+# Payments (stars idempotency)
+from .payments import is_stars_payment_processed, mark_stars_payment_processed
+
 
 __all__ = [
     # Pool
@@ -196,4 +200,6 @@ __all__ = [
     # Payment settings
     "ensure_payment_settings", "get_payment_config",
     "apply_plan_update", "apply_payment_settings_update",
+    # Payments
+    "mark_stars_payment_processed",
 ]

@@ -460,6 +460,14 @@ class DatabasePool:
                 FOREIGN KEY (from_user_id) REFERENCES users(telegram_id),
                 FOREIGN KEY (to_user_id)   REFERENCES users(telegram_id)
             );
+
+            CREATE TABLE IF NOT EXISTS stars_payments (
+                charge_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                plan_id TEXT,
+                amount INTEGER,
+                created_at REAL NOT NULL
+            );
         """)
 
         # ✅ ✅ ✅ إضافة الأعمدة الجديدة للقاعدة القديمة (بدون مسح البيانات) ✅ ✅ ✅
