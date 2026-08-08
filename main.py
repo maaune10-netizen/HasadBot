@@ -273,12 +273,13 @@ async def post_init(application: Application):
         # ============================================================
         # 📢 إعلانات متكررة ومستهدفة (Marketing Automation)
         # ============================================================
-        from datetime import time as dtime
         from hasad_bot.handlers import (
             ensure_announcement_tables,
             send_announcement,
             AnnouncementType,
         )
+        # توقيت الرياض aware — PTB يفسّر الـ time النايف كـ UTC (انحراف 3 ساعات)
+        from hasad_bot.datetime_utils import riyadh_time
 
         # تهيئة الجداول والقوالب
         await ensure_announcement_tables()
@@ -322,12 +323,12 @@ async def post_init(application: Application):
                 logger.error(f"Link reminder job failed: {e}")
 
         # run_daily(time, days) — أيام 0=الإثنين ... 6=الأحد
-        job_queue.run_daily(_scheduled_free_promo, time=dtime(10, 0), name="announce_free_promo")
-        job_queue.run_daily(_scheduled_expiring_5d, time=dtime(18, 0), name="announce_expiring_5d")
-        job_queue.run_daily(_scheduled_expiring_1d, time=dtime(19, 0), name="announce_expiring_1d")
-        job_queue.run_daily(_scheduled_low_attempts, time=dtime(9, 0), name="announce_low_attempts")
-        job_queue.run_daily(_scheduled_share_earn, time=dtime(14, 0), name="announce_share_earn")
-        job_queue.run_daily(_scheduled_link_reminder, time=dtime(12, 0), name="announce_link_reminder")
+        job_queue.run_daily(_scheduled_free_promo, time=riyadh_time(10, 0), name="announce_free_promo")
+        job_queue.run_daily(_scheduled_expiring_5d, time=riyadh_time(18, 0), name="announce_expiring_5d")
+        job_queue.run_daily(_scheduled_expiring_1d, time=riyadh_time(19, 0), name="announce_expiring_1d")
+        job_queue.run_daily(_scheduled_low_attempts, time=riyadh_time(9, 0), name="announce_low_attempts")
+        job_queue.run_daily(_scheduled_share_earn, time=riyadh_time(14, 0), name="announce_share_earn")
+        job_queue.run_daily(_scheduled_link_reminder, time=riyadh_time(12, 0), name="announce_link_reminder")
         logger.info("📢 Daily announcement jobs scheduled (6 types)")
     
     # ============================================================

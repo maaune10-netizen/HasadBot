@@ -17,7 +17,7 @@ from hasad_bot.datetime_utils import (
     format_datetime, parse_datetime, get_today, get_now_time,
     add_days, add_hours, add_minutes,
     timestamp_to_datetime, datetime_to_timestamp,
-    to_riyadh, is_naive, RIYADH_TZ,
+    to_riyadh, is_naive, riyadh_time, RIYADH_TZ,
 )
 
 
@@ -227,3 +227,36 @@ class TestRegression:
         assert target.minute == 0
         assert target.second == 0
         assert target.microsecond == 0
+
+
+class TestRiyadhTime:
+    """اختبارات riyadh_time — جدولة الإعلانات بمنطقة الرياض (Bug: انحراف 3 ساعات)"""
+
+    def test_returns_aware_time(self):
+        """يجب أن يرجع time بـ tzinfo = Asia/Riyadh (وليس naive)"""
+        t = riyadh_time(10, 0)
+        assert t.tzinfo is not None
+        assert t.tzinfo.zone == "Asia/Riyadh"
+
+    def test_hour_minute_preserved(self):
+        """الساعة والدقيقة كما هي"""
+        t = riyadh_time(19, 30)
+        assert t.hour == 19
+        assert t.minute == 30
+
+    def test_utc_offset_is_not_utc(self):
+        """PTB يستخدم tzinfo كما هو — الإزاحة يجب ألا تكون صفر (UTC)"""
+        t = riyadh_time(14, 0)
+        offset = datetime.combine(datetime(2026, 1, 1), t).utcoffset()
+        assert offset is not None
+        assert offset.total_seconds() != 0  # أي قيمة غير UTC = لا انحراف
+
+    def test_ptb_run_daily_semantics(self):
+        """محاكاة منطق PTB: time.tzinfo or UTC — الـ aware يبقى كما هو (لا انحراف)"""
+        from datetime import timezone
+        utc = timezone.utc
+        naive = riyadh_time(10, 0)
+        chosen_tz = naive.tzinfo or utc
+        # لو كان naive، PTB كان سيستخدم UTC → انحراف 3 ساعات
+        assert chosen_tz is not utc
+        assert chosen_tz.zone == "Asia/Riyadh"

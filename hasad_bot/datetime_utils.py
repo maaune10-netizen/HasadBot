@@ -126,6 +126,15 @@ def is_naive(dt):
     return dt.tzinfo is None
 
 
+def riyadh_time(hour: int, minute: int = 0):
+    """
+    وقت-aware بمنطقة الرياض (Asia/Riyadh) — للجدولة اليومية.
+    PTB يفسّر الـ time النايف على أنه UTC افتراضياً → انحراف 3 ساعات؛
+    الوقت الـ aware يُستخدم كما هو فيحترم توقيت الرياض.
+    """
+    return time(hour, minute, tzinfo=RIYADH_TZ)
+
+
 # Re-export original classes for backward compatibility
 __all__ = [
     'now',
@@ -144,6 +153,7 @@ __all__ = [
     'datetime_to_timestamp',
     'to_riyadh',
     'is_naive',
+    'riyadh_time',
     'datetime',
     'timedelta',
     'date',
