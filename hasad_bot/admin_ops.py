@@ -6,6 +6,7 @@
 
 import asyncio
 import io
+import math
 import os
 import re
 import tempfile
@@ -37,6 +38,23 @@ from hasad_bot.database import (
     log_admin_action,
     get_users_by_target,
     get_users_count_by_target,
+    is_admin,
+    is_reseller,
+    get_all_full_admins,
+    get_admin_sub_resellers,
+    promote_to_admin,
+    demote_from_admin,
+    promote_to_reseller,
+    demote_from_reseller,
+    add_reseller_credit,
+    get_reseller_credit,
+    get_reseller_stats,
+    set_reseller_credit_price,
+    get_all_reseller_credit_prices,
+    is_bot_frozen,
+    set_bot_frozen,
+    is_public_mode,
+    set_public_mode,
 )
 
 
@@ -1401,3 +1419,579 @@ async def run_backup(bot, kind: str, actor: str = "dashboard",
                                details="sent to backup channel")
         admin_trace(f"BACKUP_{kind.upper()}", f"Backup {kind} by {actor}")
         return (True, "تم إنشاء النسخة الاحتياطية وإرسالها")
+
+
+# ==============================================================================
+# تحكم البوت (Bot Control) — حالة التجميد والوضع العام — مشترك مع لوحة التحكم
+# ==============================================================================
+
+async def get_bot_status() -> dict:
+    """حالة البوت: تجميد / وضع عام / آخر إحصائيات / حيوية البوت"""
+    frozen = await is_bot_frozen()
+    public_mode = await is_public_mode()
+    try:
+        conn = await _db_pool.get_connection()
+        cursor = await conn.execute("SELECT MAX(updated_at) FROM dashboard_stats")
+        row = await cursor.fetchone()
+        last_stats_ts = row[0] if row and row[0] else 0
+    except Exception as e:
+        logger.error(f"get_bot_status stats error: {e}")
+        last_stats_ts = 0
+    bot_alive = (time.time() - last_stats_ts) < 90
+    return {
+        "frozen": frozen,
+        "public_mode": public_mode,
+        "last_stats_ts": last_stats_ts,
+        "bot_alive": bot_alive,
+    }
+
+
+async def _notify_user(uid: int, text: str):
+    """إشعار تيليجرام لمستخدم (بوت مؤقت مثل لوحة التحكم) — نفس رسائل التدفق الحالية"""
+    try:
+        from telegram import Bot
+        bot = Bot(token=config.bot_token)
+        await bot.send_message(uid, text, parse_mode="HTML")
+    except Exception:
+        pass
+
+
+async def set_bot_frozen_state(frozen: bool, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """تجميد / إلغاء تجميد البوت (مالك فقط)"""
+    assert_side_effect_safe()
+    if actor_uid != config.admin_id:
+        return (False, "غير مصرح")
+    try:
+        await set_bot_frozen(bool(frozen))
+        action_type = "BOT_FREEZE" if frozen else "BOT_UNFREEZE"
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type=action_type,
+                               details=f"frozen={frozen}")
+        admin_trace(action_type, f"Bot {'frozen' if frozen else 'unfrozen'} by {actor_name}")
+        if frozen:
+            return (True, "✅ تم تجميد البوت.")
+        return (True, "✅ تم إلغاء تجميد البوت.")
+    except Exception as e:
+        logger.error(f"set_bot_frozen_state error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def set_public_mode_state(public: bool, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """تفعيل / تعطيل الوضع العام (أدمن أو مالك) — نفس رسالة admin_toggle_mode"""
+    assert_side_effect_safe()
+    if not await is_admin(actor_uid):
+        return (False, "غير مصرح")
+    try:
+        await set_public_mode(bool(public))
+        action_type = "BOT_MODE_PUBLIC" if public else "BOT_MODE_PRIVATE"
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type=action_type,
+                               details=f"public_mode={public}")
+        admin_trace(action_type, f"Bot mode set to public={public} by {actor_name}")
+        mode = "🌍 عام" if public else "🔐 خاص"
+        return (True, f"✅ تم تغيير وضع البوت إلى: {mode}")
+    except Exception as e:
+        logger.error(f"set_public_mode_state error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+# ==============================================================================
+# إدارة الأدمنز (Admin Management) — مشترك مع لوحة التحكم
+# ==============================================================================
+
+async def list_admins(actor_uid: int) -> Tuple[bool, List[dict], str]:
+    """قائمة الأدمنز (مالك فقط)"""
+    if actor_uid != config.admin_id:
+        return (False, [], "غير مصرح")
+    try:
+        admins = await get_all_full_admins()
+        result = []
+        for (aid, name, tg_username, credit, created_at) in admins:
+            u = await db_get_user(aid) or {}
+            sub_resellers = await get_admin_sub_resellers(aid)
+            result.append({
+                "uid": aid,
+                "name": name,
+                "tg_username": tg_username,
+                "is_owner": (aid == config.admin_id),
+                "full_admin": u.get("is_admin", 0),
+                "sub_resellers_count": len(sub_resellers),
+                "credit": credit,
+            })
+        return (True, result, "")
+    except Exception as e:
+        logger.error(f"list_admins error: {e}")
+        return (False, [], f"❌ خطأ: {e}")
+
+
+async def add_admin(target_uid: int, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """ترقية مستخدم إلى أدمن + اشتراك شهري (مالك فقط) — نفس منطق admin_add_admin_done"""
+    assert_side_effect_safe()
+    try:
+        if actor_uid != config.admin_id:
+            return (False, "⛔ هذه الصلاحية للمالك فقط.")
+
+        current_admins = await get_all_full_admins()
+        if len(current_admins) >= config.max_full_admins:
+            return (False, f"❌ تم الوصول للحد الأقصى من الأدمنز ({config.max_full_admins}).\n"
+                           "احذف أدمن أولاً أو عدّل MAX_FULL_ADMINS في .env")
+
+        target_user = await db_get_user(target_uid)
+        if not target_user:
+            return (False, "❌ المستخدم غير موجود في البوت.")
+
+        if target_uid != config.admin_id and (await is_admin(target_uid) or target_user.get('is_admin', 0) >= 1):
+            return (False, "✅ هذا المستخدم أدمن بالفعل.")
+
+        # ✅ تحديث صلاحيات المستخدم + إنشاء اشتراك عادي للأدمن الجديد
+        await db_set_user(target_uid, joined_hijri=now_hijri())
+        ok = await promote_to_admin(target_uid)
+        if not ok:
+            return (False, "❌ فشل في الترقية.")
+
+        u = await db_get_user(target_uid) or {}
+        cur_exp = u.get("expiry_ts", 0) or 0
+        if cur_exp < time.time():
+            cur_exp = time.time()
+        end_date = cur_exp + (30 * 86400)
+        await create_user_subscription(target_uid, "monthly", cur_exp, end_date)
+
+        name = u.get("name", "") or str(target_uid)
+        await _notify_user(
+            target_uid,
+            "👑 <b>تم تعيينك كأدمن في النظام!</b>\n\n"
+            "📦 تم تفعيل اشتراك شهري لك (100 واجب).\n"
+            "📅 يمكنك تجديد اشتراكك من لوحة التحكم.",
+        )
+
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="ADMIN_ADD",
+                               target_user_id=target_uid, target_user_name=name,
+                               details="Promoted to admin + monthly subscription (30 days)")
+        admin_trace("ADMIN_ADD", f"User {target_uid} promoted to admin by {actor_name}", uid=str(target_uid))
+
+        return (True, f"✅ تم ترقية <code>{target_uid}</code> إلى أدمن مع اشتراك شهري.")
+    except Exception as e:
+        logger.error(f"add_admin error: {e}")
+        return (False, f"❌ فشل: {e}")
+
+
+async def delete_admin(target_uid: int, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """حذف أدمن (مالك فقط) — نفس منطق admin_handle_delete_admin"""
+    assert_side_effect_safe()
+    try:
+        if actor_uid != config.admin_id:
+            return (False, "❌ هذا الإجراء للمالك فقط.")
+        if target_uid == config.admin_id:
+            return (False, "❌ لا يمكنك حذف نفسك!")
+
+        target_user = await db_get_user(target_uid)
+        if not target_user:
+            return (False, "❌ المستخدم غير موجود.")
+
+        if target_user.get('is_admin', 0) < 1 and target_user.get('role') != 'admin':
+            return (False, "❌ هذا المستخدم ليس أدمن.")
+
+        ok = await demote_from_admin(target_uid)
+        if not ok:
+            return (False, "❌ فشل في الحذف.")
+
+        name = target_user.get('real_name') or target_user.get('name') or str(target_uid)
+        await _notify_user(
+            target_uid,
+            "⚠️ <b>تم إزالة صفة الأدمن من حسابك.</b>\n\n"
+            "لم تعد تملك لوحة الإدارة أو الصلاحيات الإدارية.",
+        )
+
+        await db_log(actor_uid, "DELETE_ADMIN", detail=f"Deleted admin {target_uid}")
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="ADMIN_DELETE",
+                               target_user_id=target_uid, target_user_name=name,
+                               details="Deleted admin")
+        admin_trace("ADMIN_DELETE", f"Admin {target_uid} deleted by {actor_name}", uid=str(target_uid))
+
+        return (True, f"✅ <b>تم حذف الأدمن بنجاح!</b>\n\n"
+                      f"👤 الأدمن: {name}\n"
+                      f"🆔 المعرف: {target_uid}")
+    except Exception as e:
+        logger.error(f"delete_admin error: {e}")
+        return (False, f"❌ فشل: {e}")
+
+
+async def charge_admin_credit(target_uid: int, amount: float, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """شحن رصيد أدمن (مالك فقط) — نفس منطق _admin_charge_admin_user_input + admin_reseller_credit_amount_input"""
+    assert_side_effect_safe()
+    try:
+        if actor_uid != config.admin_id:
+            return (False, "❌ هذا الإجراء للمالك فقط.")
+
+        user = await db_get_user(target_uid)
+        if not user:
+            return (False, "❌ المستخدم غير موجود.")
+        if user.get('is_admin', 0) < 1:
+            return (False, "❌ هذا المستخدم ليس أدمن.")
+
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not math.isfinite(amount) or amount < 0:
+            return (False, "❌ المبلغ غير صالح.")
+
+        ok = await add_reseller_credit(target_uid, amount, details=f"Added by admin {actor_uid}")
+        if not ok:
+            return (False, "❌ فشل في الشحن.")
+
+        new_balance = await get_reseller_credit(target_uid)
+        name = user.get('real_name') or user.get('name') or str(target_uid)
+        await _notify_user(
+            target_uid,
+            f"💰 <b>تم شحن رصيدك!</b>\n\n"
+            f"💳 تم إضافة: {amount} credit\n"
+            f"💰 رصيدك الحالي: {new_balance} credit",
+        )
+
+        await db_log(actor_uid, "ADD_RESELLER_CREDIT", detail=f"Added {amount} to {target_uid}")
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="ADMIN_CHARGE",
+                               target_user_id=target_uid, target_user_name=name,
+                               details=f"Added {amount} credit to admin")
+        admin_trace("ADMIN_CHARGE", f"Admin {target_uid} charged +{amount} by {actor_name}", uid=str(target_uid))
+
+        return (True, f"✅ <b>تم الشحن بنجاح!</b>\n\n"
+                      f"👤 الموزع: {name}\n"
+                      f"💳 تم إضافة: {amount} credit\n"
+                      f"💰 الرصيد الجديد: {new_balance} credit")
+    except Exception as e:
+        logger.error(f"charge_admin_credit error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+# ==============================================================================
+# إدارة الموزعين (Reseller Management) — مشترك مع لوحة التحكم
+# ==============================================================================
+
+async def list_resellers(actor_uid: int) -> Tuple[bool, List[dict], str]:
+    """قائمة الموزعين (أدمن) — عبر db_all_users + فلتر role == 'reseller' + get_reseller_stats"""
+    if not await is_admin(actor_uid):
+        return (False, [], "غير مصرح")
+    try:
+        users = await db_all_users()
+        result = []
+        for u in users:
+            uid_i = u.get("telegram_id")
+            if u.get("role") != "reseller":
+                continue
+            stats = await get_reseller_stats(uid_i)
+            result.append({
+                "uid": uid_i,
+                "name": u.get("real_name") or u.get("name") or str(uid_i),
+                "credit": u.get("reseller_credit", 0),
+                "customers_count": stats.get("total_customers", 0),
+                "stats": stats,
+            })
+        result.sort(key=lambda r: r["credit"], reverse=True)
+        return (True, result, "")
+    except Exception as e:
+        logger.error(f"list_resellers error: {e}")
+        return (False, [], f"❌ خطأ: {e}")
+
+
+async def add_reseller(target_uid: int, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """ترقية مستخدم إلى موزع / رئيس موردين (أدمن) — نفس منطق admin_add_reseller_input"""
+    assert_side_effect_safe()
+    try:
+        if not await is_admin(actor_uid):
+            return (False, "غير مصرح")
+
+        target_user = await db_get_user(target_uid)
+        if not target_user:
+            return (False, "❌ المستخدم غير موجود في البوت.")
+
+        if await is_reseller(target_uid) or target_user.get('is_admin', 0) >= 1:
+            return (False, "✅ هذا المستخدم موزع/أدمن بالفعل.")
+
+        is_owner = (actor_uid == config.admin_id)
+
+        # Enforce MAX_FULL_ADMINS limit for owner promotions
+        if is_owner:
+            current_admins = await get_all_full_admins()
+            if len(current_admins) >= config.max_full_admins:
+                return (False, f"❌ تم الوصول للحد الأقصى من الأدمنز ({config.max_full_admins}).\n"
+                               "احذف أدمن أولاً أو عدّل MAX_FULL_ADMINS في .env")
+
+        if is_owner:
+            ok = await promote_to_admin(target_uid)
+            role_display = "أدمن (رئيس موردين)"
+        else:
+            ok = await promote_to_reseller(target_uid)
+            role_display = "موزع"
+
+        if not ok:
+            return (False, "❌ فشل في الترقية.")
+
+        name = target_user.get('real_name') or target_user.get('name') or str(target_uid)
+        await _notify_user(
+            target_uid,
+            "🎉 <b>مبروك! لقد تمت ترقيتك!</b>\n\n"
+            "🔑 يمكنك الآن الوصول إلى لوحة الإدارة من القائمة الرئيسية.\n"
+            "💳 احصل على رصيد وابدأ في تفعيل الاشتراكات لعملائك!",
+        )
+
+        await db_log(actor_uid, "PROMOTE_USER", detail=f"Promoted user {target_uid} to {role_display}")
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="RESELLER_ADD",
+                               target_user_id=target_uid, target_user_name=name,
+                               details=f"Promoted to {role_display}")
+        admin_trace("RESELLER_ADD", f"User {target_uid} promoted to {role_display} by {actor_name}", uid=str(target_uid))
+
+        return (True, f"✅ <b>تمت الترقية بنجاح!</b>\n\n"
+                      f"👤 المستخدم: {name}\n"
+                      f"🆔 المعرف: {target_uid}\n"
+                      f"🏷️ الدور: {role_display}")
+    except Exception as e:
+        logger.error(f"add_reseller error: {e}")
+        return (False, f"❌ فشل: {e}")
+
+
+async def add_reseller_credit_op(target_uid: int, amount: float, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """شحن رصيد موزع (أدمن) — نفس منطق admin_reseller_credit_amount_input"""
+    assert_side_effect_safe()
+    try:
+        if not await is_admin(actor_uid):
+            return (False, "غير مصرح")
+        if not await is_reseller(target_uid):
+            return (False, "❌ هذا المستخدم ليس موزعاً.")
+
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not math.isfinite(amount) or amount < 0:
+            return (False, "❌ المبلغ غير صالح.")
+
+        ok = await add_reseller_credit(target_uid, amount, details=f"Added by admin {actor_uid}")
+        if not ok:
+            return (False, "❌ فشل في الشحن.")
+
+        new_balance = await get_reseller_credit(target_uid)
+        target_user = await db_get_user(target_uid) or {}
+        name = target_user.get('real_name') or target_user.get('name') or str(target_uid)
+        await _notify_user(
+            target_uid,
+            f"💰 <b>تم شحن رصيدك!</b>\n\n"
+            f"💳 تم إضافة: {amount} credit\n"
+            f"💰 رصيدك الحالي: {new_balance} credit",
+        )
+
+        await db_log(actor_uid, "ADD_RESELLER_CREDIT", detail=f"Added {amount} to {target_uid}")
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="RESELLER_CREDIT",
+                               target_user_id=target_uid, target_user_name=name,
+                               details=f"Added {amount} credit")
+        admin_trace("RESELLER_CREDIT", f"Reseller {target_uid} +{amount} credit by {actor_name}", uid=str(target_uid))
+
+        return (True, f"✅ <b>تم الشحن بنجاح!</b>\n\n"
+                      f"👤 الموزع: {name}\n"
+                      f"💳 تم إضافة: {amount} credit\n"
+                      f"💰 الرصيد الجديد: {new_balance} credit")
+    except Exception as e:
+        logger.error(f"add_reseller_credit_op error: {e}")
+        return (False, f"❌ فشل: {e}")
+
+
+_PLAN_NAME_AR = {'weekly': 'أسبوعي', 'monthly': 'شهري', 'semester': 'ترم'}
+
+
+async def set_reseller_prices_op(prices: dict, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """تحديد أسعار Credit (أدمن) — يقبل مفاتيح عربية (أسبوعي/شهري/ترم) أو إنجليزية — نفس منطق admin_reseller_prices_input"""
+    assert_side_effect_safe()
+    try:
+        if not await is_admin(actor_uid):
+            return (False, "غير مصرح")
+
+        plan_map = {
+            'أسبوعي': 'weekly',
+            'شهري': 'monthly',
+            'ترم': 'semester',
+        }
+
+        # تطبيع المفاتيح (عربية أو إنجليزية) + تحقق من القيم
+        normalized = []
+        for key, val in prices.items():
+            plan_type = plan_map.get(key, key)
+            if plan_type not in _PLAN_NAME_AR:
+                return (False, "❌ اسم الخطة غير صحيح. استخدم: أسبوعي، شهري، ترم")
+            if not isinstance(val, (int, float)) or isinstance(val, bool) or not math.isfinite(val) or val <= 0:
+                return (False, "❌ السعر يجب أن يكون أكبر من 0.")
+            normalized.append((plan_type, val))
+
+        for plan_type, price in normalized:
+            ok = await set_reseller_credit_price(plan_type, price)
+            if not ok:
+                return (False, "❌ فشل في تغيير السعر.")
+
+        lines = []
+        for plan_type, price in normalized:
+            lines.append(f"📦 الخطة: {_PLAN_NAME_AR[plan_type]}\n💰 السعر الجديد: {price} credit")
+            await db_log(actor_uid, "SET_RESELLER_PRICE", detail=f"{plan_type}: {price}")
+        details = ", ".join(f"{plan_type}: {price}" for plan_type, price in normalized)
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="RESELLER_PRICES",
+                               details=details)
+        admin_trace("RESELLER_PRICES", f"Prices set ({details}) by {actor_name}")
+
+        return (True, "✅ <b>تم تغيير السعر!</b>\n\n" + "\n\n".join(lines))
+    except Exception as e:
+        logger.error(f"set_reseller_prices_op error: {e}")
+        return (False, f"❌ فشل: {e}")
+
+
+async def reseller_stats_op(actor_uid: int) -> Tuple[bool, dict, str]:
+    """إحصائيات الموزعين الإجمالية (أدمن) — نفس تجميع admin_reseller_stats_panel"""
+    if not await is_admin(actor_uid):
+        return (False, {}, "غير مصرح")
+    try:
+        conn = await _db_pool.get_connection()
+
+        cursor = await conn.execute("SELECT COUNT(*) FROM users WHERE role = 'reseller'")
+        total = (await cursor.fetchone())[0]
+
+        cursor = await conn.execute(
+            "SELECT COALESCE(SUM(reseller_credit), 0) FROM users WHERE role = 'reseller'"
+        )
+        total_credit = (await cursor.fetchone())[0]
+
+        cursor = await conn.execute("SELECT COUNT(*) FROM reseller_keys")
+        total_keys = (await cursor.fetchone())[0]
+
+        cursor = await conn.execute("SELECT COUNT(*) FROM reseller_keys WHERE used = 1")
+        total_used = (await cursor.fetchone())[0]
+
+        cursor = await conn.execute(
+            "SELECT COUNT(*) FROM users WHERE referred_by_reseller IS NOT NULL"
+        )
+        total_customers = (await cursor.fetchone())[0]
+
+        prices = await get_all_reseller_credit_prices()
+
+        return (True, {
+            "total": total,
+            "total_credit": total_credit,
+            "total_keys": total_keys,
+            "total_used": total_used,
+            "total_customers": total_customers,
+            "weekly": prices.get("weekly", 0),
+            "monthly": prices.get("monthly", 0),
+            "semester": prices.get("semester", 0),
+        }, "")
+    except Exception as e:
+        logger.error(f"reseller_stats_op error: {e}")
+        return (False, {}, f"❌ خطأ: {e}")
+
+
+async def delete_reseller_op(target_uid: int, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """حذف موزع (مالك فقط) — نفس منطق admin_handle_delete_reseller"""
+    assert_side_effect_safe()
+    try:
+        if actor_uid != config.admin_id:
+            return (False, "❌ هذا الإجراء للمالك فقط.")
+        if target_uid == config.admin_id:
+            return (False, "❌ لا يمكنك حذف نفسك!")
+
+        target_user = await db_get_user(target_uid)
+        if not target_user:
+            return (False, "❌ المستخدم غير موجود.")
+
+        if not await is_reseller(target_uid):
+            return (False, "❌ هذا المستخدم ليس موزعاً.")
+
+        ok = await demote_from_reseller(target_uid)
+        if not ok:
+            return (False, "❌ فشل في الحذف.")
+
+        # دفاعي: لو كان الموزع رئيس موردين (is_admin) تُزال صلاحية الأدمن أيضاً لضمان حذف كل الصلاحيات
+        if target_user.get('is_admin', 0) >= 1:
+            await demote_from_admin(target_uid)
+
+        name = target_user.get('real_name') or target_user.get('name') or str(target_uid)
+        await _notify_user(
+            target_uid,
+            "⚠️ <b>تم إزالة صفة الموزع من حسابك.</b>\n\n"
+            "لم تعد تملك لوحة الموزع أو الرصيد.",
+        )
+
+        await db_log(actor_uid, "DELETE_RESELLER", detail=f"Deleted reseller {target_uid}")
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="RESELLER_DELETE",
+                               target_user_id=target_uid, target_user_name=name,
+                               details="Deleted reseller")
+        admin_trace("RESELLER_DELETE", f"Reseller {target_uid} deleted by {actor_name}", uid=str(target_uid))
+
+        return (True, f"✅ <b>تم حذف الموزع بنجاح!</b>\n\n"
+                      f"👤 الموزع: {name}\n"
+                      f"🆔 المعرف: {target_uid}")
+    except Exception as e:
+        logger.error(f"delete_reseller_op error: {e}")
+        return (False, f"❌ فشل: {e}")
+
+
+async def ban_reseller_customer_op(customer_uid: int, action: str, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """حظر / إيقاف اشتراك عميل موزع (مالك فقط) — نفس منطق admin_handle_ban_reseller_customer_callback"""
+    assert_side_effect_safe()
+    try:
+        if actor_uid != config.admin_id:
+            return (False, "❌ هذا الإجراء للمالك فقط.")
+
+        if action == 'cancel':
+            return (False, "❌ تم الإلغاء.")
+        if action not in ('ban', 'stop'):
+            return (False, "❌ إجراء غير صالح.")
+
+        target_user = await db_get_user(customer_uid)
+        if not target_user:
+            return (False, "❌ المستخدم غير موجود.")
+
+        customer_name = target_user.get('real_name') or target_user.get('name') or str(customer_uid)
+
+        conn = await _db_pool.get_connection()
+
+        if action == 'ban':
+            # Ban user: set free_attempts to 0 and deactivate subscription
+            await conn.execute(
+                "UPDATE users SET free_attempts = 0, expiry_ts = 0 WHERE telegram_id = ?",
+                (customer_uid,)
+            )
+            await conn.execute(
+                "UPDATE user_subscriptions SET is_active = 0 WHERE user_id = ? AND is_active = 1",
+                (customer_uid,)
+            )
+            await conn.commit()
+
+            await _notify_user(
+                customer_uid,
+                "🚫 <b>تم إيقاف حسابك</b>\n\n"
+                "لقد تم إلغاء اشتراكك وتصفير رصيدك.\n"
+                "تواصل مع الإدارة لمعرفة السبب.",
+            )
+
+            msg = (f"🚫 <b>تم حظر المستخدم!</b>\n\n"
+                   f"👤 العميل: {customer_name}\n"
+                   f"✅ تم إيقاف الاشتراك وتصفير الرصيد")
+        else:  # stop
+            # Stop subscription only
+            await conn.execute(
+                "UPDATE user_subscriptions SET is_active = 0 WHERE user_id = ? AND is_active = 1",
+                (customer_uid,)
+            )
+            await conn.execute(
+                "UPDATE users SET expiry_ts = 0 WHERE telegram_id = ?",
+                (customer_uid,)
+            )
+            await conn.commit()
+
+            await _notify_user(
+                customer_uid,
+                "⏹️ <b>تم إيقاف اشتراكك</b>\n\n"
+                "لم يعد لديك اشتراك نشط.\n"
+                "تواصل مع الإدارة لمعرفة التفاصيل.",
+            )
+
+            msg = (f"⏹️ <b>تم إيقاف الاشتراك!</b>\n\n"
+                   f"👤 العميل: {customer_name}\n"
+                   f"✅ تم إلغاء الاشتراك النشط")
+
+        await db_log(actor_uid, "BAN_RESELLER_CUSTOMER",
+                     detail=f"Action: {action}, Target: {customer_uid}")
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="RESELLER_BAN",
+                               target_user_id=customer_uid, target_user_name=customer_name,
+                               details=f"Action: {action}")
+        admin_trace("RESELLER_BAN", f"Customer {customer_uid} {action} by {actor_name}", uid=str(customer_uid))
+
+        return (True, msg)
+    except Exception as e:
+        logger.error(f"ban_reseller_customer_op error: {e}")
+        return (False, f"❌ خطأ: {e}")

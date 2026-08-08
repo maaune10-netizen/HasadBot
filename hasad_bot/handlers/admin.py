@@ -714,51 +714,13 @@ async def admin_add_admin_done(update: Update, context):
     try:
         new_uid = int(update.message.text.strip())
 
-        # ✅ تحديث صلاحيات المستخدم
-        await db_set_user(new_uid, is_admin=1, joined_hijri=now_hijri())
-
-        # ✅ ========== إنشاء اشتراك عادي للأدمن الجديد ==========
-        from hasad_bot.database import create_user_subscription
-
-        u = await db_get_user(new_uid)
-        cur_exp = (u or {}).get("expiry_ts", 0) or 0
-
-        if cur_exp < time.time():
-            cur_exp = time.time()
-
-        # 30 يوماً للأدمن الجديد
-        end_date = cur_exp + (30 * 86400)
-
-        conn = await _db_pool.get_connection()
-        await conn.execute("""
-            UPDATE user_subscriptions SET is_active = 0
-            WHERE user_id = ? AND is_active = 1
-        """, (new_uid,))
-
-        await conn.execute("""
-            INSERT INTO user_subscriptions
-            (user_id, plan_id, start_date, end_date, max_homeworks, homeworks_used, is_active)
-            VALUES (?, 'monthly', ?, ?, 100, 0, 1)
-        """, (new_uid, cur_exp, end_date))
-        await conn.commit()
-        # ================================================================
-
-        await update.message.reply_text(
-            f"✅ تم ترقية <code>{new_uid}</code> إلى أدمن مع اشتراك شهري.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=kb_admin()
+        from hasad_bot.admin_ops import add_admin
+        _, message = await add_admin(
+            new_uid,
+            actor_uid=update.effective_user.id,
+            actor_name=update.effective_user.full_name or "telegram",
         )
-
-        try:
-            await context.bot.send_message(
-                new_uid,
-                "👑 <b>تم تعيينك كأدمن في النظام!</b>\n\n"
-                "📦 تم تفعيل اشتراك شهري لك (100 واجب).\n"
-                "📅 يمكنك تجديد اشتراكك من لوحة التحكم.",
-                parse_mode=ParseMode.HTML
-            )
-        except:
-            pass
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML, reply_markup=kb_admin())
 
     except Exception as e:
         await update.message.reply_text(f"❌ فشل: {e}")
