@@ -151,6 +151,17 @@ LOGIN_PAGE = """
         .error-message.show{display:block;animation:shake 0.4s}
         @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
         .footer{text-align:center;padding:18px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:0.8em;color:#9ca3af}
+
+        /* ===== Mobile Responsiveness (≤640px) ===== */
+        @media (max-width: 640px) {
+            .login-container { max-width: 100%; }
+            .login-card { border-radius: 18px; }
+            .login-header { padding: 28px 20px 24px; }
+            .login-header h1 { font-size: 1.7em; }
+            .login-body { padding: 28px 20px 24px; }
+            .input-group input { min-height: 48px; }
+            .login-btn { min-height: 48px; }
+        }
     </style>
 </head>
 <body>
@@ -806,6 +817,45 @@ DASHBOARD_PAGE = """
             border-radius: 6px;
         }
         @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+        /* ===== Mobile Responsiveness (≤640px) ===== */
+        @media (max-width: 640px) {
+            /* Layout */
+            .container { padding: 12px; }
+            .header h1 { font-size: 1.2em; }
+            .header-meta { gap: 6px; }
+
+            /* Sticky tabs stay reachable while scrolling */
+            .tab-header { position: sticky; top: 0; z-index: 30; padding: 6px 4px; }
+
+            /* Filters stack full-width */
+            .filter-bar { flex-wrap: wrap; }
+            .filter-input, .filter-select { flex: 1 1 100%; min-width: 0; }
+
+            /* Tables scroll horizontally */
+            .table-container th, .table-container td { white-space: nowrap; }
+            .table-container table { font-size: 0.82em; }
+
+            /* Modals → bottom-sheet feel */
+            .modal-overlay.show { padding: 10px; align-items: flex-end; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+            .modal-box { max-width: 100%; max-height: 92vh; border-radius: 16px 16px 0 0; }
+            .modal-body { padding: 14px 16px; overflow-y: auto; }
+            .info-grid { grid-template-columns: 1fr; }
+
+            /* Action panels — full-width touch-friendly buttons */
+            .action-panel-btns { flex-wrap: wrap; }
+            .action-panel-btns .action-btn { flex: 1 1 100%; min-height: 46px; }
+            .day-choice { min-height: 44px; padding: 10px 14px; }
+
+            /* Log box */
+            #logs-body { font-size: 0.78em; max-height: 50vh; }
+
+            /* Touch targets */
+            .action-btn, .tab-btn, .day-choice { min-height: 44px; }
+
+            /* Safe area */
+            body { padding-bottom: env(safe-area-inset-bottom); }
+        }
     </style>
 </head>
 <body>
