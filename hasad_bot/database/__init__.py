@@ -45,6 +45,8 @@ Public surface (all names below are importable as `from hasad_bot.database impor
   Auth:                  db_setting, db_set_setting, is_public_mode, set_public_mode,
                          is_bot_frozen, set_bot_frozen,
                          log_admin_action, log_login_attempt, populate_login_logs_from_history
+  Payment settings:      ensure_payment_settings, get_payment_config,
+                         apply_plan_update, apply_payment_settings_update
 """
 
 # Pool — the shared singleton
@@ -130,6 +132,12 @@ from .auth import (
     log_admin_action, log_login_attempt, populate_login_logs_from_history,
 )
 
+# Payment settings
+from .payment_settings import (
+    ensure_payment_settings, get_payment_config,
+    apply_plan_update, apply_payment_settings_update,
+)
+
 
 __all__ = [
     # Pool
@@ -185,4 +193,7 @@ __all__ = [
     "db_setting", "db_set_setting", "is_public_mode", "set_public_mode",
     "is_bot_frozen", "set_bot_frozen",
     "log_admin_action", "log_login_attempt", "populate_login_logs_from_history",
+    # Payment settings
+    "ensure_payment_settings", "get_payment_config",
+    "apply_plan_update", "apply_payment_settings_update",
 ]

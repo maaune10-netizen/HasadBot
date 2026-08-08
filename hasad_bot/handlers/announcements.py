@@ -530,13 +530,14 @@ async def _format_message_for_user(template: str, user: dict) -> str:
     semester_hw = 200
     semester_price = 60
     try:
-        from hasad_bot.handlers.constants import PLANS, MAIN_PLANS
-        if "monthly" in PLANS:
-            monthly_hw = PLANS["monthly"].get("hw", monthly_hw)
-            monthly_price = PLANS["monthly"].get("price", monthly_price)
-        if "semester" in PLANS:
-            semester_hw = PLANS["semester"].get("hw", semester_hw)
-            semester_price = PLANS["semester"].get("price", semester_price)
+        from hasad_bot.database.payment_settings import get_payment_config
+        plans = (await get_payment_config()).get("plans", {}) or {}
+        monthly = plans.get("monthly") or {}
+        semester = plans.get("semester") or {}
+        monthly_hw = monthly.get("max_homeworks", monthly_hw)
+        monthly_price = monthly.get("price", monthly_price)
+        semester_hw = semester.get("max_homeworks", semester_hw)
+        semester_price = semester.get("price", semester_price)
     except Exception:
         pass
 

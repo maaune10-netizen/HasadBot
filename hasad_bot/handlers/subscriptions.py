@@ -228,10 +228,19 @@ async def activate_request_callback(update: Update, context: ContextTypes.DEFAUL
     target_uid = int(query.data.split(":")[1])
     context.user_data["activate_user_id"] = target_uid
 
+    from hasad_bot.database.payment_settings import get_payment_config
+    config_plans = (await get_payment_config()).get("plans", {}) or {}
+    days_options = sorted({p.get("days") for p in config_plans.values() if p.get("days")}) or [7, 30, 90]
+    day_labels = {
+        7: "📅 7 أيام",
+        30: "📆 30 يوم",
+        90: "🎓 90 يوم",
+    }
+
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📅 7 أيام", callback_data=f"set_days:7:{target_uid}")],
-        [InlineKeyboardButton("📆 30 يوم", callback_data=f"set_days:30:{target_uid}")],
-        [InlineKeyboardButton("🎓 90 يوم", callback_data=f"set_days:90:{target_uid}")],
+        [InlineKeyboardButton(day_labels.get(d, f"📅 {d} يوم"), callback_data=f"set_days:{d}:{target_uid}")]
+        for d in days_options
+    ] + [
         [InlineKeyboardButton("✍️ أيام مخصصة", callback_data=f"custom_days:{target_uid}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"view_request:{target_uid}")]
     ])
@@ -649,6 +658,12 @@ async def activate_subscription(update: Update, context: ContextTypes.DEFAULT_TY
             status_msg = f"🎟️ عندك {trials} واجبات مجانية متبقية"
 
         # الرسالة الجديدة بعد التعديل
+        from hasad_bot.database.payment_settings import get_payment_config
+        config_plans = (await get_payment_config()).get("plans", {}) or {}
+        weekly_price = (config_plans.get("weekly") or {}).get("price", 10)
+        monthly_price = (config_plans.get("monthly") or {}).get("price", 25)
+        semester_price = (config_plans.get("semester") or {}).get("price", 60)
+
         welcome_text = f"""
 <b>🎁 تفعيل الاشتراك في HASAD</b> 🎁
 
@@ -659,9 +674,9 @@ async def activate_subscription(update: Update, context: ContextTypes.DEFAULT_TY
 
 ━━━━━━━━━━━━━━━━━━
 <b>💎 باقات حصاد:</b>
-⚡ اسبوعي • 10 ريال
-👑 شهري • 25 ريال
-🚀 ترم • 60 ريال (3 شهور)
+⚡ اسبوعي • {weekly_price} ريال
+👑 شهري • {monthly_price} ريال
+🚀 ترم • {semester_price} ريال (3 شهور)
 
 📋 <b>يرجى قراءة التفاصيل:</b>
 اكتب <code>/plans</code> للمزيد من المعلومات

@@ -47,6 +47,8 @@ async def db_init():
     from .subscriptions import db_init_plans
     await db_init_plans()
     await _seed_reseller_credit_prices()
+    from .payment_settings import ensure_payment_settings
+    await ensure_payment_settings()
     logger.info(f"✅ Database initialized: {config.db_file}")
 
 

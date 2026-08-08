@@ -6,6 +6,7 @@
 
 import asyncio
 import io
+import json
 import math
 import os
 import re
@@ -1994,4 +1995,125 @@ async def ban_reseller_customer_op(customer_uid: int, action: str, actor_uid: in
         return (True, msg)
     except Exception as e:
         logger.error(f"ban_reseller_customer_op error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+# ==============================================================================
+# إعدادات الدفع (Payment Settings) — إدارة الخطط وبيانات الدفع — مالك فقط
+# تعتمد على hasad_bot/database/payment_settings.py (استيراد كسول لتفادي التبعية)
+# ==============================================================================
+
+async def update_plan_config(plan_id: str, fields: dict, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """تحديث إعدادات خطة اشتراك (مالك فقط) — تحقق صارم + تسجيل تدقيق old→new.
+
+    المفاتيح المسموحة: price, days, max_homeworks, stars, is_active.
+    price: رقم منتهي غير سالب؛ days/max_homeworks/stars: أعداد صحيحة غير سالبة (days >= 1)؛ is_active: bool.
+    """
+    assert_side_effect_safe()
+    if actor_uid != config.admin_id:
+        return (False, "❌ هذا الإجراء للمالك فقط.")
+    try:
+        from hasad_bot.database.payment_settings import (
+            get_payment_config,
+            apply_plan_update,
+        )
+
+        allowed = {"price", "days", "max_homeworks", "stars", "is_active"}
+        unknown = set(fields) - allowed
+        if unknown:
+            return (False, f"❌ مفاتيح غير صالحة للخطة: {', '.join(sorted(unknown))}")
+
+        for key, value in fields.items():
+            if key == "is_active":
+                if not isinstance(value, bool):
+                    return (False, "❌ قيمة is_active يجب أن تكون صح/خطأ (bool).")
+            elif key == "price":
+                if (isinstance(value, bool)
+                        or not isinstance(value, (int, float))
+                        or not math.isfinite(float(value))
+                        or float(value) < 0):
+                    return (False, "❌ قيمة السعر (price) يجب أن تكون رقمًا منتهيًا غير سالب.")
+            else:  # days, max_homeworks, stars
+                if (isinstance(value, bool)
+                        or not isinstance(value, int)
+                        or not math.isfinite(float(value))
+                        or value < 0):
+                    return (False, f"❌ قيمة {key} يجب أن تكون عددًا صحيحًا غير سالب.")
+                if key == "days" and value < 1:
+                    return (False, "❌ عدد الأيام (days) يجب أن يكون 1 على الأقل.")
+
+        # قراءة الإعدادات قبل التحديث
+        old_config = await get_payment_config()
+        plans_before = old_config.get("plans", {})
+        old_plan = plans_before.get(plan_id)
+        if old_plan is None:
+            return (False, f"❌ الخطة '{plan_id}' غير موجودة.")
+        old_plan = dict(old_plan)
+
+        # تطبيق التحديث ثم قراءة ما بعد التحديث
+        await apply_plan_update(plan_id, fields)
+        new_config = await get_payment_config()
+        new_plan = new_config.get("plans", {}).get(plan_id, old_plan)
+
+        old_json = json.dumps(old_plan, ensure_ascii=False, default=str)
+        new_json = json.dumps(new_plan, ensure_ascii=False, default=str)
+
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="PLAN_UPDATE",
+                               target_user_id=None,
+                               old_value=old_json, new_value=new_json,
+                               details=f"plan={plan_id}")
+        admin_trace("PLAN_UPDATE", f"Plan {plan_id} updated by {actor_name}", uid=str(actor_uid))
+
+        return (True, f"✅ تم تحديث الخطة '{plan_id}' بنجاح.")
+    except Exception as e:
+        logger.error(f"update_plan_config error: {e}")
+        return (False, f"❌ خطأ: {e}")
+
+
+async def update_payment_settings_op(fields: dict, actor_uid: int, actor_name: str) -> Tuple[bool, str]:
+    """تحديث بيانات الدفع (مالك فقط): بيانات البنك + STC + تفعيل طرق الدفع — مع تدقيق old→new.
+
+    المفاتيح النصية: bank_name, bank_account_name, bank_account_number, bank_iban, stc_phone, stc_notes
+    (نصوص غير فارغة بطول <= 200). المفاتيح المنطقية: payment_method_bank, payment_method_stc, payment_method_stars (bool).
+    """
+    assert_side_effect_safe()
+    if actor_uid != config.admin_id:
+        return (False, "❌ هذا الإجراء للمالك فقط.")
+    try:
+        from hasad_bot.database.payment_settings import apply_payment_settings_update
+
+        text_keys = {"bank_name", "bank_account_name", "bank_account_number", "bank_iban", "stc_phone", "stc_notes"}
+        bool_keys = {"payment_method_bank", "payment_method_stc", "payment_method_stars"}
+        allowed = text_keys | bool_keys
+
+        unknown = set(fields) - allowed
+        if unknown:
+            return (False, f"❌ مفاتيح غير صالحة لإعدادات الدفع: {', '.join(sorted(unknown))}")
+
+        for key, value in fields.items():
+            if key in text_keys:
+                if not isinstance(value, str) or not value.strip():
+                    return (False, f"❌ قيمة {key} يجب أن تكون نصًا غير فارغ.")
+                if len(value) > 200:
+                    return (False, f"❌ قيمة {key} يجب ألا تتجاوز 200 حرف.")
+            else:  # bool_keys
+                if not isinstance(value, bool):
+                    return (False, f"❌ قيمة {key} يجب أن تكون صح/خطأ (bool).")
+
+        result = await apply_payment_settings_update(fields)
+        old_value = result.get("old", {})
+        new_value = result.get("new", {})
+
+        old_json = json.dumps(old_value, ensure_ascii=False, default=str)
+        new_json = json.dumps(new_value, ensure_ascii=False, default=str)
+
+        await log_admin_action(admin_id=actor_uid, admin_name=actor_name, action_type="PAYMENT_SETTINGS_UPDATE",
+                               target_user_id=None,
+                               old_value=old_json, new_value=new_json,
+                               details=f"keys={list(fields)}")
+        admin_trace("PAYMENT_SETTINGS_UPDATE", f"Payment settings updated by {actor_name}: keys={list(fields)}", uid=str(actor_uid))
+
+        return (True, "✅ تم تحديث إعدادات الدفع بنجاح.")
+    except Exception as e:
+        logger.error(f"update_payment_settings_op error: {e}")
         return (False, f"❌ خطأ: {e}")

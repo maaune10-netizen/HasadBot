@@ -918,6 +918,9 @@ DASHBOARD_PAGE = """
                     <button class="tab-btn" data-tab="payments" onclick="showTab('payments',this)">
                         <span>💳</span><span class="hide-mobile">طلبات الدفع</span>
                     </button>
+                    <button class="tab-btn" data-tab="settings" onclick="showTab('settings',this)">
+                        <span>💳</span><span class="hide-mobile">الإعدادات</span>
+                    </button>
                     <button class="tab-btn" data-tab="messaging" onclick="showTab('messaging',this)">
                         <span>📢</span><span class="hide-mobile">البث والإعلانات</span>
                     </button>
@@ -1377,6 +1380,42 @@ DASHBOARD_PAGE = """
                             </table>
                         </div>
                     </div>
+                    <!-- Settings Tab -->
+                    <div class="tab-pane" id="tab-settings">
+                        <div class="section-header">💳 إعدادات الدفع</div>
+                        <div id="settings-msg" class="action-msg" style="display:none"></div>
+                        <div class="section-header" style="margin-top:18px">📦 الخطط</div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px" id="settings-plans-grid"></div>
+                        <div class="action-panel">
+                            <div class="action-panel-title">🏦 بيانات البنك</div>
+                            <div class="action-panel-row">
+                                <label for="ps-bank_name">اسم البنك: <input type="text" id="ps-bank_name" class="day-custom" style="width:180px" maxlength="200"></label>
+                                <label for="ps-bank_account_name">اسم المستفيد: <input type="text" id="ps-bank_account_name" class="day-custom" style="width:180px" maxlength="200"></label>
+                            </div>
+                            <div class="action-panel-row">
+                                <label for="ps-bank_account_number">رقم الحساب: <input type="text" id="ps-bank_account_number" class="day-custom" style="width:180px" maxlength="200"></label>
+                                <label for="ps-bank_iban">الآيبان: <input type="text" id="ps-bank_iban" class="day-custom" style="width:220px" maxlength="200"></label>
+                            </div>
+                        </div>
+                        <div class="action-panel">
+                            <div class="action-panel-title">📱 بيانات STC Pay</div>
+                            <div class="action-panel-row">
+                                <label for="ps-stc_phone">رقم الجوال: <input type="text" id="ps-stc_phone" class="day-custom" style="width:180px" maxlength="200"></label>
+                                <label for="ps-stc_notes">ملاحظات: <input type="text" id="ps-stc_notes" class="day-custom" style="width:220px" maxlength="200"></label>
+                            </div>
+                        </div>
+                        <div class="action-panel">
+                            <div class="action-panel-title">💳 طرق الدفع</div>
+                            <div class="action-panel-row">
+                                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em"><input type="checkbox" id="ps-method-bank" style="accent-color:var(--primary);width:16px;height:16px;cursor:pointer"> تحويل بنكي</label>
+                                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em"><input type="checkbox" id="ps-method-stc" style="accent-color:var(--primary);width:16px;height:16px;cursor:pointer"> STC Pay</label>
+                                <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:0.85em"><input type="checkbox" id="ps-method-stars" style="accent-color:var(--primary);width:16px;height:16px;cursor:pointer"> دفع بالنجوم</label>
+                            </div>
+                        </div>
+                        <div class="action-panel-btns">
+                            <button class="action-btn action-btn-primary" id="pay-settings-save-btn" onclick="confirmSavePaymentSettings()">💾 حفظ الإعدادات</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1741,6 +1780,7 @@ DASHBOARD_PAGE = """
         document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
         document.getElementById('tab-'+name)?.classList.add('active');
         if (name === 'payments') loadPaymentRequests();
+        if (name === 'settings') loadPaymentSettings();
         if (name === 'messaging') loadMessaging();
         if (name === 'support') loadSupportConversations();
         if (name === 'control') loadControlStatus();
@@ -3805,6 +3845,215 @@ DASHBOARD_PAGE = """
         }
     }
 
+    /* ===== Payment Settings ===== */
+    let paymentConfig = null;
+    const PAYMENT_PLAN_IDS = ['weekly', 'monthly', 'semester'];
+    const PAYMENT_PLAN_LABELS = { weekly: 'أسبوعي', monthly: 'شهري', semester: 'ترم' };
+    const PAYMENT_FIELD_LABELS = {
+        price: 'السعر (ريال)', days: 'المدة (أيام)', max_homeworks: 'عدد الواجبات',
+        stars: 'سعر النجوم', is_active: 'التفعيل',
+        bank_name: 'اسم البنك', bank_account_name: 'اسم المستفيد',
+        bank_account_number: 'رقم الحساب', bank_iban: 'الآيبان',
+        stc_phone: 'رقم الجوال', stc_notes: 'ملاحظات',
+        method_bank: 'تحويل بنكي', method_stc: 'STC Pay', method_stars: 'دفع بالنجوم'
+    };
+
+    function setPaymentSettingsMsg(text, isError) {
+        const el = document.getElementById('settings-msg');
+        if (!el) return;
+        if (text) {
+            el.textContent = text;
+            el.className = 'action-msg ' + (isError ? 'action-msg-error' : 'action-msg-success');
+            el.style.display = '';
+        } else {
+            el.textContent = '';
+            el.className = 'action-msg';
+            el.style.display = 'none';
+        }
+    }
+
+    function renderPaymentPlans(plans) {
+        const grid = document.getElementById('settings-plans-grid');
+        grid.innerHTML = PAYMENT_PLAN_IDS.map(pid => {
+            const p = plans[pid] || {};
+            return '<div class="api-card" style="min-width:220px">' +
+                '<div class="api-label">' + esc(p.name || PAYMENT_PLAN_LABELS[pid]) + '</div>' +
+                '<div style="margin-top:10px">' +
+                '<div class="action-panel-row"><label>السعر (ريال): <input type="number" id="ps-price-' + pid + '" class="day-custom" min="0" step="0.01" style="width:110px"></label></div>' +
+                '<div class="action-panel-row"><label>المدة (أيام): <input type="number" id="ps-days-' + pid + '" class="day-custom" min="1" step="1" style="width:110px"></label></div>' +
+                '<div class="action-panel-row"><label>عدد الواجبات: <input type="number" id="ps-hw-' + pid + '" class="day-custom" min="0" step="1" style="width:110px"></label></div>' +
+                '<div class="action-panel-row"><label>سعر النجوم: <input type="number" id="ps-stars-' + pid + '" class="day-custom" min="0" step="1" style="width:110px"></label></div>' +
+                '<div class="action-panel-row"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="ps-active-' + pid + '" style="accent-color:var(--primary);width:16px;height:16px;cursor:pointer"> تفعيل/تعطيل</label></div>' +
+                '</div></div>';
+        }).join('');
+    }
+
+    async function loadPaymentSettings() {
+        setPaymentSettingsMsg('⏳ جاري تحميل إعدادات الدفع...', false);
+        try {
+            const res = await fetch('/api/admin/payment-config');
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                setPaymentSettingsMsg('⚠️ ' + (data.message || data.error || 'فشل تحميل الإعدادات'), true);
+                return;
+            }
+            paymentConfig = data;
+            renderPaymentPlans(data.plans || {});
+            const bank = data.bank || {};
+            const stc = data.stc || {};
+            const methods = data.methods || {};
+            const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v === null || v === undefined) ? '' : v; };
+            setVal('ps-bank_name', bank.bank_name);
+            setVal('ps-bank_account_name', bank.bank_account_name);
+            setVal('ps-bank_account_number', bank.bank_account_number);
+            setVal('ps-bank_iban', bank.bank_iban);
+            setVal('ps-stc_phone', stc.stc_phone);
+            setVal('ps-stc_notes', stc.stc_notes);
+            document.getElementById('ps-method-bank').checked = !!methods.bank;
+            document.getElementById('ps-method-stc').checked = !!methods.stc;
+            document.getElementById('ps-method-stars').checked = !!methods.stars;
+            setPaymentSettingsMsg('', false);
+        } catch (err) {
+            setPaymentSettingsMsg('⚠️ فشل الاتصال بالخادم', true);
+        }
+    }
+
+    function paymentValueLabel(key, value) {
+        if (key === 'is_active') return value ? 'مفعل' : 'معطل';
+        return String(value);
+    }
+
+    function buildPaymentChanges() {
+        const changes = [];
+        const payload = { plans: {}, bank: {}, stc: {}, methods: {} };
+        const base = paymentConfig || {};
+        const basePlans = base.plans || {};
+        const baseBank = base.bank || {};
+        const baseStc = base.stc || {};
+        const baseMethods = base.methods || {};
+        const num = v => (v === '' || v === null || v === undefined) ? NaN : Number(v);
+
+        for (let i = 0; i < PAYMENT_PLAN_IDS.length; i++) {
+            const pid = PAYMENT_PLAN_IDS[i];
+            const label = PAYMENT_PLAN_LABELS[pid];
+            const cur = basePlans[pid] || {};
+            const price = num(document.getElementById('ps-price-' + pid).value);
+            const days = num(document.getElementById('ps-days-' + pid).value);
+            const hw = num(document.getElementById('ps-hw-' + pid).value);
+            const stars = num(document.getElementById('ps-stars-' + pid).value);
+            const active = document.getElementById('ps-active-' + pid).checked;
+            if (!(price >= 0) || !(days >= 0) || !(hw >= 0) || !(stars >= 0)) {
+                setPaymentSettingsMsg('⚠️ تأكد من إدخال قيم صحيحة لخطة ' + label, true);
+                return null;
+            }
+            const fields = {};
+            if (Number(cur.price) !== price) {
+                fields.price = price;
+                changes.push(esc(PAYMENT_FIELD_LABELS.price) + ' (' + esc(label) + '): ' + esc(paymentValueLabel('price', cur.price)) + ' → ' + esc(paymentValueLabel('price', price)));
+            }
+            if (Number(cur.days) !== days) {
+                fields.days = days;
+                changes.push(esc(PAYMENT_FIELD_LABELS.days) + ' (' + esc(label) + '): ' + esc(paymentValueLabel('days', cur.days)) + ' → ' + esc(paymentValueLabel('days', days)));
+            }
+            if (Number(cur.max_homeworks) !== hw) {
+                fields.max_homeworks = hw;
+                changes.push(esc(PAYMENT_FIELD_LABELS.max_homeworks) + ' (' + esc(label) + '): ' + esc(paymentValueLabel('max_homeworks', cur.max_homeworks)) + ' → ' + esc(paymentValueLabel('max_homeworks', hw)));
+            }
+            if (Number(cur.stars) !== stars) {
+                fields.stars = stars;
+                changes.push(esc(PAYMENT_FIELD_LABELS.stars) + ' (' + esc(label) + '): ' + esc(paymentValueLabel('stars', cur.stars)) + ' → ' + esc(paymentValueLabel('stars', stars)));
+            }
+            if (!!cur.is_active !== active) {
+                fields.is_active = active;
+                changes.push(esc(PAYMENT_FIELD_LABELS.is_active) + ' (' + esc(label) + '): ' + esc(paymentValueLabel('is_active', cur.is_active)) + ' → ' + esc(paymentValueLabel('is_active', active)));
+            }
+            if (Object.keys(fields).length) payload.plans[pid] = fields;
+        }
+
+        const textPairs = [
+            ['bank_name', 'ps-bank_name', 'bank'],
+            ['bank_account_name', 'ps-bank_account_name', 'bank'],
+            ['bank_account_number', 'ps-bank_account_number', 'bank'],
+            ['bank_iban', 'ps-bank_iban', 'bank'],
+            ['stc_phone', 'ps-stc_phone', 'stc'],
+            ['stc_notes', 'ps-stc_notes', 'stc']
+        ];
+        for (let i = 0; i < textPairs.length; i++) {
+            const key = textPairs[i][0], elId = textPairs[i][1], section = textPairs[i][2];
+            const curBase = section === 'bank' ? baseBank : baseStc;
+            const newVal = document.getElementById(elId).value.trim();
+            if (!newVal) {
+                setPaymentSettingsMsg('⚠️ ' + esc(PAYMENT_FIELD_LABELS[key]) + ' مطلوب', true);
+                return null;
+            }
+            const oldVal = curBase[key] || '';
+            if (oldVal !== newVal) {
+                payload[section][key] = newVal;
+                changes.push(esc(PAYMENT_FIELD_LABELS[key]) + ': ' + esc(oldVal) + ' → ' + esc(newVal));
+            }
+        }
+
+        const methodPairs = [['bank', 'ps-method-bank'], ['stc', 'ps-method-stc'], ['stars', 'ps-method-stars']];
+        for (let i = 0; i < methodPairs.length; i++) {
+            const key = methodPairs[i][0], elId = methodPairs[i][1];
+            const newVal = document.getElementById(elId).checked;
+            const oldVal = !!baseMethods[key];
+            if (oldVal !== newVal) {
+                payload.methods[key] = newVal;
+                changes.push(esc(PAYMENT_FIELD_LABELS['method_' + key]) + ': ' + esc(oldVal ? 'مفعل' : 'معطل') + ' → ' + esc(newVal ? 'مفعل' : 'معطل'));
+            }
+        }
+        return { changes: changes, payload: payload };
+    }
+
+    function confirmSavePaymentSettings() {
+        const built = buildPaymentChanges();
+        if (!built) return;
+        if (!built.changes.length) { setPaymentSettingsMsg('ℹ️ لا توجد تغييرات للحفظ', true); return; }
+        const lines = built.changes.map(c => '<div style="padding:6px 10px;border-bottom:1px solid var(--border)">' + c + '</div>').join('');
+        openModal('💾 تأكيد حفظ الإعدادات', `
+            <div class="action-panel">
+                <div class="action-panel-title">📋 ملخص التغييرات</div>
+                <div style="max-height:280px;overflow-y:auto;font-size:0.9em;line-height:1.7;margin-bottom:6px">${lines}</div>
+                <div style="font-size:0.85em;color:var(--text-secondary)">هل أنت متأكد من حفظ هذه التغييرات؟</div>
+                <div class="action-panel-btns">
+                    <button class="action-btn action-btn-primary" id="pay-settings-confirm-btn" onclick="doSavePaymentSettings()">✅ تأكيد الحفظ</button>
+                    <button class="action-btn action-btn-ghost" onclick="closeModal()">إلغاء</button>
+                </div>
+            </div>`);
+    }
+
+    async function doSavePaymentSettings() {
+        const built = buildPaymentChanges();
+        if (!built) return;
+        const btn = document.getElementById('pay-settings-confirm-btn');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ جاري الحفظ...'; }
+        try {
+            const res = await fetch('/api/admin/payment-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirm: true, plans: built.payload.plans, bank: built.payload.bank, stc: built.payload.stc, methods: built.payload.methods })
+            });
+            const data = await res.json();
+            if (data.success === false || data.error) {
+                const msg = data.message || data.error || 'فشل حفظ الإعدادات';
+                setPaymentSettingsMsg('⚠️ ' + msg, true);
+                showToast('⚠️ ' + msg, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = '✅ تأكيد الحفظ'; }
+                return;
+            }
+            closeModal();
+            const msg = data.message || 'تم حفظ إعدادات الدفع';
+            setPaymentSettingsMsg('✅ ' + msg, false);
+            showToast('✅ ' + msg, 'success');
+            await loadPaymentSettings();
+        } catch (err) {
+            setPaymentSettingsMsg('⚠️ فشل الاتصال بالخادم', true);
+            showToast('⚠️ فشل الاتصال بالخادم', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = '✅ تأكيد الحفظ'; }
+        }
+    }
+
     /* ===== Clock ===== */
     function updateTime() {
         const now = new Date();
@@ -4503,6 +4752,108 @@ async def admin_reject_payment_request(rid: int, request: Request):
         return {"success": success, "message": message}
     except Exception as e:
         logger.error(f"admin_reject_payment_request error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.get("/api/admin/payment-config")
+async def admin_payment_config():
+    """قراءة إعدادات الدفع الحالية (خطط + بنك + STC + طرق الدفع) — للوحة التحكم"""
+    try:
+        from hasad_bot.database.payment_settings import get_payment_config
+        return await get_payment_config()
+    except Exception as e:
+        logger.error(f"admin_payment_config error: {e}")
+        return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
+
+
+@app.post("/api/admin/payment-config")
+async def admin_update_payment_config(request: Request):
+    """حفظ إعدادات الدفع — تحقق كامل من الحمولة قبل أي تطبيق، ثم تطبيق تدريجي"""
+    try:
+        body = await _parse_admin_body(request)
+        if body.get("confirm") is not True:
+            return JSONResponse({"success": False, "message": "مطلوب تأكيد الحفظ"}, status_code=400)
+
+        from hasad_bot.database.payment_settings import get_payment_config
+        from hasad_bot.admin_ops import update_plan_config, update_payment_settings_op
+
+        current = await get_payment_config()
+        known_plans = current.get("plans", {})
+
+        # ---- التحقق من الخطط أولاً (قبل أي تطبيق) ----
+        plans_body = body.get("plans") or {}
+        if not isinstance(plans_body, dict):
+            return JSONResponse({"success": False, "message": "بيانات الخطط غير صالحة"}, status_code=400)
+
+        plan_updates: Dict[str, dict] = {}
+        for plan_id, fields in plans_body.items():
+            if plan_id not in known_plans:
+                return JSONResponse({"success": False, "message": f"الخطة '{plan_id}' غير موجودة"}, status_code=400)
+            if not isinstance(fields, dict):
+                return JSONResponse({"success": False, "message": f"بيانات الخطة '{plan_id}' غير صالحة"}, status_code=400)
+            for key, value in fields.items():
+                if key == "is_active":
+                    if not isinstance(value, bool):
+                        return JSONResponse({"success": False, "message": f"قيمة التفعيل للخطة '{plan_id}' غير صالحة"}, status_code=400)
+                elif key == "price":
+                    if (isinstance(value, bool) or not isinstance(value, (int, float))
+                            or not math.isfinite(float(value)) or float(value) < 0):
+                        return JSONResponse({"success": False, "message": f"سعر الخطة '{plan_id}' غير صالح"}, status_code=400)
+                elif key in ("days", "max_homeworks", "stars"):
+                    if (isinstance(value, bool) or not isinstance(value, int)
+                            or not math.isfinite(float(value)) or value < 0):
+                        return JSONResponse({"success": False, "message": f"قيمة '{key}' للخطة '{plan_id}' غير صالحة"}, status_code=400)
+                else:
+                    return JSONResponse({"success": False, "message": f"مفتاح غير صالح للخطة '{plan_id}': {key}"}, status_code=400)
+            if fields:
+                plan_updates[plan_id] = fields
+
+        # ---- التحقق من بيانات الدفع (بنك + STC + طرق) قبل أي تطبيق ----
+        text_map = {
+            "bank_name": "اسم البنك", "bank_account_name": "اسم المستفيد",
+            "bank_account_number": "رقم الحساب", "bank_iban": "الآيبان",
+            "stc_phone": "رقم الجوال", "stc_notes": "ملاحظات",
+        }
+        method_map = {"bank": "payment_method_bank", "stc": "payment_method_stc", "stars": "payment_method_stars"}
+        settings_fields: Dict[str, object] = {}
+
+        for section in ("bank", "stc"):
+            section_data = body.get(section) or {}
+            if not isinstance(section_data, dict):
+                return JSONResponse({"success": False, "message": f"بيانات القسم '{section}' غير صالحة"}, status_code=400)
+            for key, value in section_data.items():
+                if key not in text_map:
+                    return JSONResponse({"success": False, "message": f"مفتاح غير صالح: {key}"}, status_code=400)
+                if not isinstance(value, str) or not value.strip():
+                    return JSONResponse({"success": False, "message": f"{text_map[key]} مطلوب"}, status_code=400)
+                if len(value) > 200:
+                    return JSONResponse({"success": False, "message": f"{text_map[key]} يجب ألا يتجاوز 200 حرف"}, status_code=400)
+                settings_fields[key] = value
+
+        methods_data = body.get("methods") or {}
+        if not isinstance(methods_data, dict):
+            return JSONResponse({"success": False, "message": "بيانات طرق الدفع غير صالحة"}, status_code=400)
+        for key, value in methods_data.items():
+            if key not in method_map:
+                return JSONResponse({"success": False, "message": f"طريقة دفع غير صالحة: {key}"}, status_code=400)
+            if not isinstance(value, bool):
+                return JSONResponse({"success": False, "message": f"قيمة طريقة الدفع '{key}' غير صالحة"}, status_code=400)
+            settings_fields[method_map[key]] = value
+
+        # ---- التطبيق: الخطط أولاً (توقف عند أول فشل) ثم بيانات الدفع ----
+        for plan_id, fields in plan_updates.items():
+            ok, message = await update_plan_config(plan_id, fields, actor_uid=config.admin_id, actor_name="dashboard")
+            if not ok:
+                return JSONResponse({"success": False, "message": message}, status_code=400)
+
+        if settings_fields:
+            ok, message = await update_payment_settings_op(settings_fields, actor_uid=config.admin_id, actor_name="dashboard")
+            if not ok:
+                return JSONResponse({"success": False, "message": message}, status_code=400)
+
+        return {"success": True, "message": "تم حفظ إعدادات الدفع"}
+    except Exception as e:
+        logger.error(f"admin_update_payment_config error: {e}")
         return JSONResponse({"success": False, "message": "حدث خطأ داخلي"}, status_code=500)
 
 

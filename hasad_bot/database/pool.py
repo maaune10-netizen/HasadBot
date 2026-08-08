@@ -260,7 +260,8 @@ class DatabasePool:
                 days            INTEGER NOT NULL,
                 max_homeworks   INTEGER NOT NULL,
                 description     TEXT,
-                is_active       INTEGER DEFAULT 1
+                is_active       INTEGER DEFAULT 1,
+                stars           INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -486,6 +487,15 @@ class DatabasePool:
             if 'parent_admin_id' not in column_names:
                 await self._connection.execute("ALTER TABLE users ADD COLUMN parent_admin_id INTEGER DEFAULT NULL")
                 logger.info("✅ تم إضافة عمود: parent_admin_id")
+
+            # subscription_plans — عمود stars للقاعدة القديمة (بدون مسح البيانات)
+            cursor = await self._connection.execute("PRAGMA table_info(subscription_plans)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+
+            if 'stars' not in column_names:
+                await self._connection.execute("ALTER TABLE subscription_plans ADD COLUMN stars INTEGER DEFAULT 0")
+                logger.info("✅ تم إضافة عمود: stars (subscription_plans)")
 
             # جدول transaction_log — CREATE IF NOT EXISTS يكفي (لا يحتاج ALTER)
 
